@@ -1,0 +1,6 @@
+flask>=3.0
+google-auth>=2.29
+google-auth-oauthlib>=1.2
+google-api-python-client>=2.120
+cryptography>=42.0
+python-dotenv>=1.0
