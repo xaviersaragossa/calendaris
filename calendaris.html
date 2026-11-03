@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ca">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Els meus calendaris</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; background: #f4f5f7; color: #222; }
+    header { background: #fff; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+    header a { color: #1a73e8; text-decoration: none; }
+    main { display: grid; grid-template-columns: 280px 1fr; gap: 1.5rem; padding: 1.5rem 2rem; }
+    @media (max-width: 700px) { main { grid-template-columns: 1fr; } }
+    .panel { background: #fff; border-radius: 12px; padding: 1.25rem; box-shadow: 0 2px 12px rgba(0,0,0,.06); }
+    h2 { margin-top: 0; font-size: 1.1rem; }
+    ul { list-style: none; padding: 0; margin: 0; }
+    .cal a { display: flex; align-items: center; gap: .6rem; padding: .5rem; border-radius: 8px; color: inherit; text-decoration: none; }
+    .cal a:hover, .cal a.actiu { background: #eef3fd; }
+    .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+    .ev { padding: .75rem 0; border-bottom: 1px solid #eee; }
+    .ev:last-child { border-bottom: 0; }
+    .quan { color: #555; font-size: .9rem; }
+    .buit { color: #777; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>{{ user['name'] or user['email'] }}</strong>
+    <span>{{ user['email'] }} · <a href="{{ url_for('logout') }}">Sortir</a></span>
+  </header>
+  <main>
+    <section class="panel">
+      <h2>Calendaris</h2>
+      <ul>
+        {% for c in calendaris %}
+        <li class="cal">
+          <a href="{{ url_for('calendaris', id=c['id']) }}" class="{{ 'actiu' if c['id'] == actiu }}">
+            <span class="dot" style="background: {{ c.get('backgroundColor', '#999') }}"></span>
+            {{ c.get('summaryOverride') or c['summary'] }}
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+    <section class="panel">
+      <h2>Propers esdeveniments</h2>
+      {% if events %}
+        {% for e in events %}
+        <div class="ev">
+          <div><strong>{{ e.get('summary', '(sense títol)') }}</strong></div>
+          <div class="quan">{{ e['quan'] }}{% if e.get('location') %} · {{ e['location'] }}{% endif %}</div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <p class="buit">No hi ha esdeveniments pròxims en aquest calendari.</p>
+      {% endif %}
+    </section>
+  </main>
+</body>
+</html>
