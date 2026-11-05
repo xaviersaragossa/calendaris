@@ -1,0 +1,4 @@
+.env
+calendaris.db
+venv/
+__pycache__/
