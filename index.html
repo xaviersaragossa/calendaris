@@ -39,6 +39,21 @@
   .title { font-weight:600; }
   .meta { color:var(--muted); font-size:.85rem; }
   a { color:var(--accent); text-decoration:none; }
+  .tools { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; }
+  .seg { display:inline-flex; }
+  .seg button { border-radius:0; background:var(--soft); color:var(--accent); }
+  .seg button:first-child { border-radius:8px 0 0 8px; }
+  .seg button:last-child { border-radius:0 8px 8px 0; }
+  .seg button.on { background:var(--accent); color:#fff; }
+  .gridwrap { overflow-x:auto; margin-top:.5rem; }
+  .cal-grid { display:grid; grid-template-columns:repeat(7, minmax(110px, 1fr)); min-width:770px; border-top:1px solid var(--line); border-left:1px solid var(--line); }
+  .dow { padding:.4rem; font-weight:700; font-size:.8rem; color:var(--muted); text-align:center; text-transform:capitalize; border-right:1px solid var(--line); border-bottom:1px solid var(--line); }
+  .cell { min-height:110px; padding:.3rem; overflow:hidden; border-right:1px solid var(--line); border-bottom:1px solid var(--line); }
+  .cell.today { background:var(--soft); }
+  .dn { font-size:.8rem; color:var(--muted); margin-bottom:.2rem; }
+  .cell.today .dn { color:var(--accent); font-weight:700; }
+  .chip { display:block; font-size:.75rem; padding:.1rem .35rem; margin-bottom:2px; border-radius:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .more { font-size:.75rem; color:var(--accent); background:none; border:0; padding:0; cursor:pointer; }
 </style>
 </head>
 <body>
@@ -67,12 +82,23 @@
   </aside>
   <section class="card">
     <div class="head">
-      <h2>Propers esdeveniments</h2>
-      <select id="days" aria-label="Interval de dies">
-        <option value="7">7 dies</option>
-        <option value="14" selected>14 dies</option>
-        <option value="30">30 dies</option>
-      </select>
+      <h2 id="ev-title">Propers esdeveniments</h2>
+      <div class="tools">
+        <div class="seg">
+          <button id="v-grid" class="on">5 setmanes</button>
+          <button id="v-list">Llista</button>
+        </div>
+        <span id="nav" class="tools">
+          <button id="nav-prev" class="sec" aria-label="Setmana anterior">◀</button>
+          <button id="nav-today" class="sec">Avui</button>
+          <button id="nav-next" class="sec" aria-label="Setmana següent">▶</button>
+        </span>
+        <select id="days" hidden aria-label="Interval de dies">
+          <option value="7">7 dies</option>
+          <option value="14" selected>14 dies</option>
+          <option value="30">30 dies</option>
+        </select>
+      </div>
     </div>
     <div id="events"></div>
   </section>
@@ -81,7 +107,7 @@
 <script>
   // ====== CONFIGURACIÓ: enganxa aquí el teu ID de client de Google Cloud ======
   // (L'ID de client no és secret. Mai no hi posis el "secret de client".)
-  const CLIENT_ID = "419710279198-q9va8acipt65pbiifm7ppulofh5q326e.apps.googleusercontent.com";
+  const CLIENT_ID = "EL-TEU-ID-DE-CLIENT.apps.googleusercontent.com";
   // ============================================================================
 
   const SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
@@ -89,7 +115,8 @@
   const $ = (s) => document.querySelector(s);
 
   let tokenClient = null, token = null, calendars = [], events = [];
-  const hidden = new Set();
+  let view = "grid", weekOffset = 0, gridStart = null;
+  const hidden = new Set(), expanded = new Set();
 
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const safeColor = (c) => (/^#[0-9a-f]{6}$/i.test(c || "") ? c : "#888888");
@@ -135,7 +162,7 @@
 
   function signOut() {
     if (token) google.accounts.oauth2.revoke(token, () => {});
-    token = null; calendars = []; events = []; hidden.clear();
+    token = null; calendars = []; events = []; hidden.clear(); expanded.clear(); weekOffset = 0;
     showMsg("");
     setSignedIn(false);
   }
@@ -164,11 +191,16 @@
       // Només els calendaris "activats" (marcats com a visibles a Google Calendar)
       calendars = list.items.filter((c) => c.selected);
 
-      const days = +$("#days").value;
+      let min, max;
+      if (view === "grid") {
+        gridStart = weekStart(weekOffset);
+        min = gridStart; max = addDays(gridStart, 35);
+      } else {
+        min = new Date(); max = new Date(Date.now() + (+$("#days").value) * 864e5);
+      }
       const params = {
-        timeMin: new Date().toISOString(),
-        timeMax: new Date(Date.now() + days * 864e5).toISOString(),
-        singleEvents: "true", orderBy: "startTime", maxResults: "100",
+        timeMin: min.toISOString(), timeMax: max.toISOString(),
+        singleEvents: "true", orderBy: "startTime", maxResults: view === "grid" ? "250" : "100",
       };
       let failed = 0;
       const results = await Promise.all(calendars.map((c) =>
@@ -184,6 +216,68 @@
     }
   }
 
+  const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+  const midnight = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const parseDay = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+  const weekStart = (offset) => { const t = midnight(new Date()); return addDays(t, -((t.getDay() + 6) % 7) + 7 * offset); };
+
+  function textOn(hex) {
+    const n = parseInt(hex.slice(1), 16), r = n >> 16, gr = (n >> 8) & 255, b = n & 255;
+    return (0.299 * r + 0.587 * gr + 0.114 * b) > 160 ? "#202124" : "#ffffff";
+  }
+
+  // Primer i últim dia (a mitjanit, hora local) que cobreix un esdeveniment
+  function daySpan(e) {
+    if (e.start.dateTime) {
+      const s = new Date(e.start.dateTime), en = new Date(new Date(e.end.dateTime).getTime() - 1);
+      return [midnight(s), midnight(en < s ? s : en)];
+    }
+    const s = parseDay(e.start.date), en = addDays(parseDay(e.end.date), -1);
+    return [s, en < s ? s : en];
+  }
+
+  function gridTitle() {
+    if (!gridStart) return "Propers esdeveniments";
+    const last = addDays(gridStart, 34);
+    const f = (d) => d.toLocaleDateString("ca", { day: "numeric", month: "short" });
+    return f(gridStart) + " – " + f(last) + " " + last.getFullYear();
+  }
+
+  function gridHTML() {
+    if (!gridStart) return "";
+    const hm = (iso) => new Date(iso).toLocaleTimeString("ca", { hour: "2-digit", minute: "2-digit" });
+    const visible = events.filter((e) => !hidden.has(e._cal.id)).map((e) => ({ e, span: daySpan(e) }));
+    const todayT = midnight(new Date()).getTime();
+
+    let html = '<div class="gridwrap"><div class="cal-grid">';
+    for (let i = 0; i < 7; i++) {
+      html += `<div class="dow">${esc(addDays(gridStart, i).toLocaleDateString("ca", { weekday: "short" }))}</div>`;
+    }
+    for (let i = 0; i < 35; i++) {
+      const day = addDays(gridStart, i), t = day.getTime();
+      const list = visible
+        .filter((x) => x.span[0].getTime() <= t && t <= x.span[1].getTime())
+        .sort((a, b) => (a.e.start.dateTime ? 1 : 0) - (b.e.start.dateTime ? 1 : 0) || startMs(a.e) - startMs(b.e));
+      const key = String(t), open = expanded.has(key), shown = open ? list : list.slice(0, 3);
+      const label = (i === 0 || day.getDate() === 1)
+        ? day.toLocaleDateString("ca", { day: "numeric", month: "short" }) : String(day.getDate());
+
+      html += `<div class="cell${t === todayT ? " today" : ""}"><div class="dn">${esc(label)}</div>`;
+      for (const { e, span } of shown) {
+        const col = safeColor(e._cal.backgroundColor);
+        const time = e.start.dateTime && span[0].getTime() === t ? hm(e.start.dateTime) + " " : "";
+        const name = e.summary || "(sense títol)";
+        const tip = time + name + " · " + (e._cal.summaryOverride || e._cal.summary);
+        html += `<span class="chip" style="background:${col};color:${textOn(col)}" title="${esc(tip)}">${esc(time + name)}</span>`;
+      }
+      if (list.length > 3) {
+        html += `<button class="more" data-day="${key}">${open ? "mostra menys" : "+" + (list.length - 3) + " més"}</button>`;
+      }
+      html += "</div>";
+    }
+    return html + "</div></div>";
+  }
+
   function render() {
     $("#cals").innerHTML = calendars.map((c, i) => `
       <li class="cal"><label>
@@ -191,6 +285,9 @@
         <span class="dot" style="background:${safeColor(c.backgroundColor)}"></span>
         <span>${esc(c.summaryOverride || c.summary)}</span>
       </label></li>`).join("") || '<li class="muted">No tens cap calendari activat.</li>';
+
+    $("#ev-title").textContent = view === "grid" ? gridTitle() : "Propers esdeveniments";
+    if (view === "grid") { $("#events").innerHTML = gridHTML(); return; }
 
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const dayKey = (ms) => { const d = new Date(Math.max(ms, today.getTime())); d.setHours(0, 0, 0, 0); return d.getTime(); };
@@ -224,6 +321,26 @@
   $("#btn-switch").onclick = () => { if (token) google.accounts.oauth2.revoke(token, () => {}); signIn("select_account"); };
   $("#btn-out").onclick = signOut;
   $("#days").onchange = load;
+
+  function setView(v) {
+    view = v;
+    $("#v-grid").classList.toggle("on", v === "grid");
+    $("#v-list").classList.toggle("on", v === "list");
+    $("#nav").hidden = v !== "grid";
+    $("#days").hidden = v !== "list";
+    if (token) load();
+  }
+  $("#v-grid").onclick = () => setView("grid");
+  $("#v-list").onclick = () => setView("list");
+  $("#nav-prev").onclick = () => { weekOffset--; load(); };
+  $("#nav-next").onclick = () => { weekOffset++; load(); };
+  $("#nav-today").onclick = () => { weekOffset = 0; load(); };
+  $("#events").onclick = (ev) => {
+    const k = ev.target.dataset && ev.target.dataset.day;
+    if (!k) return;
+    expanded.has(k) ? expanded.delete(k) : expanded.add(k);
+    render();
+  };
   $("#cals").onchange = (ev) => {
     const c = calendars[+ev.target.dataset.i];
     if (!c) return;
