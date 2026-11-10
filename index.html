@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="ca">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Els meus calendaris</title>
+<style>
+  :root { --bg:#f4f5f7; --card:#fff; --text:#222; --muted:#666; --line:#eee; --accent:#1a73e8; --soft:#eef3fd; --err:#b00020; --errbg:#fdecea; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#16181c; --card:#1f2227; --text:#e8eaed; --muted:#9aa0a6; --line:#2c3036; --accent:#8ab4f8; --soft:#26303f; --err:#f28b82; --errbg:#3b2220; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--text); }
+  header { background:var(--card); padding:1rem 1.5rem; display:flex; flex-wrap:wrap; gap:.75rem; justify-content:space-between; align-items:center; box-shadow:0 1px 4px rgba(0,0,0,.1); }
+  h1 { margin:0; font-size:1.25rem; }
+  h2 { margin:0 0 .75rem; font-size:1.05rem; }
+  .hdr-right { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; }
+  .muted { color:var(--muted); } .small { font-size:.85rem; }
+  button, select { font:inherit; font-size:.9rem; border-radius:8px; border:0; padding:.5rem 1rem; cursor:pointer; background:var(--accent); color:#fff; }
+  button.sec { background:var(--soft); color:var(--accent); }
+  select { background:var(--soft); color:var(--accent); padding:.4rem .6rem; }
+  [hidden] { display:none !important; }
+  .card { background:var(--card); border-radius:12px; padding:1.25rem; box-shadow:0 2px 12px rgba(0,0,0,.08); }
+  .center { max-width:420px; margin:3rem auto; text-align:center; }
+  #msg { margin:1rem 1.5rem 0; }
+  #msg div { padding:.75rem 1rem; border-radius:8px; background:var(--soft); }
+  #msg div.error { background:var(--errbg); color:var(--err); }
+  main { display:grid; grid-template-columns:240px 1fr; gap:1.25rem; padding:1.25rem 1.5rem; align-items:start; }
+  @media (max-width:700px) { main { grid-template-columns:1fr; padding:1rem; } }
+  ul { list-style:none; margin:0; padding:0; }
+  .cal label { display:flex; gap:.6rem; align-items:center; padding:.4rem 0; cursor:pointer; }
+  .dot { width:12px; height:12px; border-radius:50%; flex:none; }
+  .head { display:flex; justify-content:space-between; align-items:center; gap:1rem; }
+  .day { margin:1.25rem 0 .25rem; font-weight:700; text-transform:capitalize; }
+  .ev { display:flex; gap:.75rem; padding:.6rem 0; border-bottom:1px solid var(--line); }
+  .ev:last-child { border-bottom:0; }
+  .bar { width:4px; border-radius:2px; flex:none; }
+  .when { min-width:7.5rem; color:var(--muted); font-size:.9rem; }
+  .title { font-weight:600; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  a { color:var(--accent); text-decoration:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Els meus calendaris</h1>
+  <div class="hdr-right">
+    <span id="who" class="muted small"></span>
+    <button id="btn-refresh" class="sec" hidden>Actualitza</button>
+    <button id="btn-switch" class="sec" hidden>Canvia de compte</button>
+    <button id="btn-out" class="sec" hidden>Sortir</button>
+  </div>
+</header>
+
+<div id="msg" role="status"></div>
+
+<section id="login" class="card center">
+  <p>Entra amb el teu compte de Google per veure els propers esdeveniments dels teus calendaris.</p>
+  <button id="btn-in">Entra amb Google</button>
+  <p class="muted small">Només lectura. Les dades es carreguen directament al teu navegador; aquesta pàgina no té servidor ni desa res.</p>
+</section>
+
+<main id="app" hidden>
+  <aside class="card">
+    <h2>Calendaris</h2>
+    <ul id="cals"></ul>
+  </aside>
+  <section class="card">
+    <div class="head">
+      <h2>Propers esdeveniments</h2>
+      <select id="days" aria-label="Interval de dies">
+        <option value="7">7 dies</option>
+        <option value="14" selected>14 dies</option>
+        <option value="30">30 dies</option>
+      </select>
+    </div>
+    <div id="events"></div>
+  </section>
+</main>
+
+<script>
+  // ====== CONFIGURACIÓ: enganxa aquí el teu ID de client de Google Cloud ======
+  // (L'ID de client no és secret. Mai no hi posis el "secret de client".)
+  const CLIENT_ID = "EL-TEU-ID-DE-CLIENT.apps.googleusercontent.com";
+  // ============================================================================
+
+  const SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
+  const API = "https://www.googleapis.com/calendar/v3";
+  const $ = (s) => document.querySelector(s);
+
+  let tokenClient = null, token = null, calendars = [], events = [];
+  const hidden = new Set();
+
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const safeColor = (c) => (/^#[0-9a-f]{6}$/i.test(c || "") ? c : "#888888");
+
+  function showMsg(text, kind) {
+    $("#msg").innerHTML = text ? `<div class="${kind || ""}">${esc(text)}</div>` : "";
+  }
+
+  function setSignedIn(on) {
+    $("#login").hidden = on;
+    $("#app").hidden = !on;
+    for (const id of ["#btn-refresh", "#btn-switch", "#btn-out"]) $(id).hidden = !on;
+    if (!on) $("#who").textContent = "";
+  }
+
+  function init() {
+    if (CLIENT_ID.startsWith("EL-TEU")) {
+      showMsg("Falta configurar el CLIENT_ID al principi del fitxer index.html.", "error");
+      return;
+    }
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: CLIENT_ID,
+      scope: SCOPE,
+      callback: onToken,
+      error_callback: (e) => showMsg("No s'ha pogut iniciar la sessió (" + (e.type || "error") + ").", "error"),
+    });
+  }
+
+  function signIn(prompt) {
+    if (!tokenClient) return init();
+    tokenClient.requestAccessToken({ prompt });
+  }
+
+  function onToken(resp) {
+    if (resp.error) return showMsg("Google ha retornat un error: " + resp.error, "error");
+    if (!google.accounts.oauth2.hasGrantedAllScopes(resp, SCOPE)) {
+      return showMsg("Cal acceptar el permís de lectura dels calendaris per poder continuar.", "error");
+    }
+    token = resp.access_token;
+    setSignedIn(true);
+    load();
+  }
+
+  function signOut() {
+    if (token) google.accounts.oauth2.revoke(token, () => {});
+    token = null; calendars = []; events = []; hidden.clear();
+    showMsg("");
+    setSignedIn(false);
+  }
+
+  async function api(path, params) {
+    const url = API + path + (params ? "?" + new URLSearchParams(params) : "");
+    const r = await fetch(url, { headers: { Authorization: "Bearer " + token } });
+    if (r.status === 401) { signOut(); throw new Error("La sessió ha caducat. Torna a entrar."); }
+    if (!r.ok) {
+      let m = "Error " + r.status;
+      try { m = (await r.json()).error.message || m; } catch (_) {}
+      throw new Error(m);
+    }
+    return r.json();
+  }
+
+  const startMs = (e) => (e.start.dateTime ? Date.parse(e.start.dateTime) : Date.parse(e.start.date + "T00:00:00"));
+
+  async function load() {
+    showMsg("Carregant…");
+    try {
+      const list = await api("/users/me/calendarList", { maxResults: 250 });
+      const primary = list.items.find((c) => c.primary);
+      if (primary) $("#who").textContent = primary.id;
+
+      // Només els calendaris "activats" (marcats com a visibles a Google Calendar)
+      calendars = list.items.filter((c) => c.selected);
+
+      const days = +$("#days").value;
+      const params = {
+        timeMin: new Date().toISOString(),
+        timeMax: new Date(Date.now() + days * 864e5).toISOString(),
+        singleEvents: "true", orderBy: "startTime", maxResults: "100",
+      };
+      let failed = 0;
+      const results = await Promise.all(calendars.map((c) =>
+        api(`/calendars/${encodeURIComponent(c.id)}/events`, params)
+          .then((r) => (r.items || []).filter((e) => e.status !== "cancelled").map((e) => ({ ...e, _cal: c })))
+          .catch(() => { failed++; return []; })
+      ));
+      events = results.flat().sort((a, b) => startMs(a) - startMs(b));
+      render();
+      showMsg(failed ? `No s'han pogut carregar ${failed} calendari(s).` : "", failed ? "error" : "");
+    } catch (err) {
+      showMsg(err.message, "error");
+    }
+  }
+
+  function render() {
+    $("#cals").innerHTML = calendars.map((c, i) => `
+      <li class="cal"><label>
+        <input type="checkbox" data-i="${i}" ${hidden.has(c.id) ? "" : "checked"}>
+        <span class="dot" style="background:${safeColor(c.backgroundColor)}"></span>
+        <span>${esc(c.summaryOverride || c.summary)}</span>
+      </label></li>`).join("") || '<li class="muted">No tens cap calendari activat.</li>';
+
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const dayKey = (ms) => { const d = new Date(Math.max(ms, today.getTime())); d.setHours(0, 0, 0, 0); return d.getTime(); };
+    const dayLabel = (k) => {
+      const diff = Math.round((k - today.getTime()) / 864e5);
+      const txt = new Date(k).toLocaleDateString("ca", { weekday: "long", day: "numeric", month: "long" });
+      return diff === 0 ? "Avui · " + txt : diff === 1 ? "Demà · " + txt : txt;
+    };
+    const hm = (iso) => new Date(iso).toLocaleTimeString("ca", { hour: "2-digit", minute: "2-digit" });
+
+    const visible = events.filter((e) => !hidden.has(e._cal.id));
+    let html = "", last = null;
+    for (const e of visible) {
+      const k = dayKey(startMs(e));
+      if (k !== last) { html += `<div class="day">${esc(dayLabel(k))}</div>`; last = k; }
+      const when = e.start.dateTime ? `${hm(e.start.dateTime)} – ${hm(e.end.dateTime)}` : "Tot el dia";
+      const link = (e.htmlLink || "").startsWith("https://www.google.com/calendar")
+        ? ` · <a href="${esc(e.htmlLink)}" target="_blank" rel="noopener">Obre</a>` : "";
+      html += `<div class="ev">
+        <span class="bar" style="background:${safeColor(e._cal.backgroundColor)}"></span>
+        <span class="when">${esc(when)}</span>
+        <div><div class="title">${esc(e.summary || "(sense títol)")}</div>
+        <div class="meta">${esc(e._cal.summaryOverride || e._cal.summary)}${e.location ? " · " + esc(e.location) : ""}${link}</div></div>
+      </div>`;
+    }
+    $("#events").innerHTML = html || '<p class="muted">No hi ha esdeveniments en aquest interval.</p>';
+  }
+
+  $("#btn-in").onclick = () => signIn("");
+  $("#btn-refresh").onclick = load;
+  $("#btn-switch").onclick = () => { if (token) google.accounts.oauth2.revoke(token, () => {}); signIn("select_account"); };
+  $("#btn-out").onclick = signOut;
+  $("#days").onchange = load;
+  $("#cals").onchange = (ev) => {
+    const c = calendars[+ev.target.dataset.i];
+    if (!c) return;
+    ev.target.checked ? hidden.delete(c.id) : hidden.add(c.id);
+    render();
+  };
+</script>
+<script src="https://accounts.google.com/gsi/client" async defer onload="init()"></script>
+</body>
+</html>
