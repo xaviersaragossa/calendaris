@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Els meus calendaris</title>
+<title>Calendaris Pere Relats</title>
 <style>
   :root { color-scheme: light dark; --bg:#f4f5f7; --card:#fff; --text:#222; --muted:#666; --line:#eee; --accent:#1a73e8; --soft:#eef3fd; --err:#b00020; --errbg:#fdecea; }
   @media (prefers-color-scheme: dark) {
@@ -13,6 +13,8 @@
   body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--text); }
   header { background:var(--card); padding:1rem 1.5rem; display:flex; flex-wrap:wrap; gap:.75rem; justify-content:space-between; align-items:center; box-shadow:0 1px 4px rgba(0,0,0,.1); }
   h1 { margin:0; font-size:1.25rem; }
+  .brand { display:flex; align-items:center; gap:.75rem; }
+  .brand img { height:40px; width:auto; max-width:160px; object-fit:contain; }
   h2 { margin:0 0 .75rem; font-size:1.05rem; }
   .hdr-right { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; }
   .muted { color:var(--muted); } .small { font-size:.85rem; }
@@ -82,7 +84,10 @@
 </head>
 <body>
 <header>
-  <h1>Els meus calendaris</h1>
+  <div class="brand">
+    <img id="logo" src="logo.png" alt="Logotip" onerror="this.hidden = true">
+    <h1>Calendaris Pere Relats</h1>
+  </div>
   <div class="hdr-right">
     <span id="who" class="muted small"></span>
     <button id="btn-refresh" class="sec" hidden>Actualitza</button>
@@ -157,7 +162,7 @@
 <script>
   // ====== CONFIGURACIÓ: enganxa aquí el teu ID de client de Google Cloud ======
   // (L'ID de client no és secret. Mai no hi posis el "secret de client".)
-  const CLIENT_ID = "419710279198-q9va8acipt65pbiifm7ppulofh5q326e.apps.googleusercontent.com";
+  const CLIENT_ID = "EL-TEU-ID-DE-CLIENT.apps.googleusercontent.com";
   // ============================================================================
 
   // Lectura de calendaris + edició d'esdeveniments (sense tocar la configuració dels calendaris)
