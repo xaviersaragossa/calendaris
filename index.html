@@ -134,7 +134,7 @@
   </section>
 </main>
 
-<div id="pop" hidden role="tooltip"></div>
+<div id="pop" hidden role="dialog" aria-label="Detall de l'esdeveniment"></div>
 
 <dialog id="dlg">
   <form id="f" autocomplete="off">
@@ -162,7 +162,7 @@
 <script>
   // ====== CONFIGURACIÓ: enganxa aquí el teu ID de client de Google Cloud ======
   // (L'ID de client no és secret. Mai no hi posis el "secret de client".)
-  const CLIENT_ID = "419710279198-q9va8acipt65pbiifm7ppulofh5q326e.apps.googleusercontent.com";
+  const CLIENT_ID = "EL-TEU-ID-DE-CLIENT.apps.googleusercontent.com";
   // ============================================================================
 
   // Lectura de calendaris + edició d'esdeveniments (sense tocar la configuració dels calendaris)
@@ -177,7 +177,7 @@
   let view = "grid", weekOffset = 0, gridStart = null;
   const hidden = new Set(), expanded = new Set();
   const pop = $("#pop");
-  let popTimer = null, pinned = false;
+  let popTimer = null, pinned = false, popEl = null;
   let editing = null, origDesc = "", editAllowed = false;
 
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -391,6 +391,7 @@
     const e = events[+el.dataset.ev];
     if (!e) return;
     clearTimeout(popTimer);
+    popEl = el;
     pop.innerHTML = popHTML(e);
     pop.hidden = false;
     pinned = !!pin;
@@ -471,20 +472,22 @@
 
   $("#events").onclick = (ev) => {
     const el = evEl(ev.target);
-    if (el && !ev.target.closest("a")) { showPop(el, true); return; }   // clic/tocar: fixa el quadre
+    if (el && !ev.target.closest("a")) { togglePop(el); return; }   // clic/tocar: obre o tanca el detall
     const k = ev.target.dataset && ev.target.dataset.day;
     if (k) { expanded.has(k) ? expanded.delete(k) : expanded.add(k); render(); return; }
     const cell = ev.target.closest("[data-new]");   // clic en un dia buit: nou esdeveniment aquell dia
     if (cell && editAllowed) openForm(null, new Date(+cell.dataset.new));
   };
 
-  // Ratolí i teclat: mostra el detall en passar-hi per sobre o en enfocar
-  $("#events").addEventListener("mouseover", (ev) => { const el = evEl(ev.target); if (el && !pinned) showPop(el, false); });
-  $("#events").addEventListener("mouseout", (ev) => { if (evEl(ev.target)) hidePop(); });
-  $("#events").addEventListener("focusin", (ev) => { const el = evEl(ev.target); if (el && !pinned) showPop(el, false); });
-  $("#events").addEventListener("focusout", () => hidePop());
-  pop.addEventListener("mouseenter", () => clearTimeout(popTimer));   // deixa clicar els enllaços del quadre
-  pop.addEventListener("mouseleave", () => hidePop());
+  // El detall només s'obre amb un clic (o amb Intro/Espai si s'hi ha arribat amb el tabulador)
+  function togglePop(el) {
+    if (!pop.hidden && popEl === el) hidePop(true);   // un segon clic al mateix esdeveniment el tanca
+    else showPop(el, true);
+  }
+  $("#events").addEventListener("keydown", (ev) => {
+    const el = evEl(ev.target);
+    if (el && ev.target === el && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); togglePop(el); }
+  });
   document.addEventListener("click", (ev) => { if (!ev.target.closest("#pop, [data-ev]")) hidePop(true); });
   document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") hidePop(true); });
   window.addEventListener("scroll", (ev) => { if (!pop.contains(ev.target)) hidePop(true); }, true);
