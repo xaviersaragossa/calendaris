@@ -55,6 +55,9 @@
   .chip { display:block; font-size:.75rem; padding:.1rem .35rem; margin-bottom:2px; border-radius:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .more { font-size:.75rem; color:var(--accent); background:none; border:0; padding:0; cursor:pointer; }
   .chip, .ev { cursor:pointer; }
+  .cell.can-new { cursor:pointer; }
+  .cell.can-new:hover { background:var(--soft); }
+  .cell.can-new:hover .dn::after { content:" +"; color:var(--accent); font-weight:700; }
   .chip:focus-visible, .ev:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
   #pop { position:fixed; z-index:50; width:max-content; max-width:340px; max-height:60vh; overflow:auto; padding:.8rem 1rem; font-size:.9rem; background:var(--card); color:var(--text); border:1px solid var(--line); border-radius:10px; box-shadow:0 6px 24px rgba(0,0,0,.25); }
   #pop .pt { display:flex; gap:.5rem; align-items:center; font-weight:700; margin-bottom:.35rem; }
@@ -154,7 +157,7 @@
 <script>
   // ====== CONFIGURACIÓ: enganxa aquí el teu ID de client de Google Cloud ======
   // (L'ID de client no és secret. Mai no hi posis el "secret de client".)
-  const CLIENT_ID = "419710279198-q9va8acipt65pbiifm7ppulofh5q326e.apps.googleusercontent.com";
+  const CLIENT_ID = "EL-TEU-ID-DE-CLIENT.apps.googleusercontent.com";
   // ============================================================================
 
   // Lectura de calendaris + edició d'esdeveniments (sense tocar la configuració dels calendaris)
@@ -310,6 +313,7 @@
     const hm = (iso) => new Date(iso).toLocaleTimeString("ca", { hour: "2-digit", minute: "2-digit" });
     const visible = events.filter((e) => !hidden.has(e._cal.id)).map((e) => ({ e, span: daySpan(e) }));
     const todayT = midnight(new Date()).getTime();
+    const canNew = editAllowed && calendars.some(canWrite);
 
     let html = '<div class="gridwrap"><div class="cal-grid">';
     for (let i = 0; i < 7; i++) {
@@ -324,7 +328,7 @@
       const label = (i === 0 || day.getDate() === 1)
         ? day.toLocaleDateString("ca", { day: "numeric", month: "short" }) : String(day.getDate());
 
-      html += `<div class="cell${t === todayT ? " today" : ""}"><div class="dn">${esc(label)}</div>`;
+      html += `<div class="cell${t === todayT ? " today" : ""}${canNew ? " can-new" : ""}"${canNew ? ` data-new="${t}"` : ""}><div class="dn">${esc(label)}</div>`;
       for (const { e, span } of shown) {
         const col = safeColor(e._cal.backgroundColor);
         const time = e.start.dateTime && span[0].getTime() === t ? hm(e.start.dateTime) + " " : "";
@@ -464,9 +468,9 @@
     const el = evEl(ev.target);
     if (el && !ev.target.closest("a")) { showPop(el, true); return; }   // clic/tocar: fixa el quadre
     const k = ev.target.dataset && ev.target.dataset.day;
-    if (!k) return;
-    expanded.has(k) ? expanded.delete(k) : expanded.add(k);
-    render();
+    if (k) { expanded.has(k) ? expanded.delete(k) : expanded.add(k); render(); return; }
+    const cell = ev.target.closest("[data-new]");   // clic en un dia buit: nou esdeveniment aquell dia
+    if (cell && editAllowed) openForm(null, new Date(+cell.dataset.new));
   };
 
   // Ratolí i teclat: mostra el detall en passar-hi per sobre o en enfocar
@@ -490,7 +494,7 @@
   // Només els esdeveniments normals es poden editar (no aniversaris, ubicació de treball, etc.)
   const canEditEvent = (e) => canWrite(e._cal) && (!e.eventType || e.eventType === "default");
 
-  function openForm(e) {
+  function openForm(e, day) {
     const writable = calendars.filter(canWrite);
     if (!editAllowed || !writable.length) return;
     editing = e || null;
@@ -511,7 +515,9 @@
         end: allday ? toDay(addDays(parseDay(e.end.date), -1)) : toLocal(new Date(e.end.dateTime)),
       };
     } else {
-      const s = new Date(); s.setMinutes(0, 0, 0); s.setHours(s.getHours() + 1);
+      const now = new Date(), s = new Date(day || now);
+      if (day && toDay(day) !== toDay(now)) s.setHours(9, 0, 0, 0);        // un altre dia: a les 9:00
+      else { s.setTime(now.getTime()); s.setMinutes(0, 0, 0); s.setHours(s.getHours() + 1); }   // avui: propera hora
       f = { allday: false, summary: "", loc: "", desc: "", start: toLocal(s), end: toLocal(new Date(s.getTime() + 36e5)) };
     }
     for (const id of ["#f-start", "#f-end"]) $(id).type = f.allday ? "date" : "datetime-local";
