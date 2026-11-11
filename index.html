@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Els meus calendaris</title>
 <style>
-  :root { --bg:#f4f5f7; --card:#fff; --text:#222; --muted:#666; --line:#eee; --accent:#1a73e8; --soft:#eef3fd; --err:#b00020; --errbg:#fdecea; }
+  :root { color-scheme: light dark; --bg:#f4f5f7; --card:#fff; --text:#222; --muted:#666; --line:#eee; --accent:#1a73e8; --soft:#eef3fd; --err:#b00020; --errbg:#fdecea; }
   @media (prefers-color-scheme: dark) {
     :root { --bg:#16181c; --card:#1f2227; --text:#e8eaed; --muted:#9aa0a6; --line:#2c3036; --accent:#8ab4f8; --soft:#26303f; --err:#f28b82; --errbg:#3b2220; }
   }
@@ -61,6 +61,20 @@
   #pop .pm { color:var(--muted); font-size:.85rem; margin-bottom:.2rem; }
   #pop .pd { margin-top:.5rem; white-space:pre-wrap; word-break:break-word; }
   #pop .pl { margin-top:.6rem; font-size:.85rem; }
+  #pop .pl button { padding:.25rem .8rem; font-size:.8rem; }
+  dialog { width:min(480px, 92vw); padding:1.25rem; border:0; border-radius:12px; background:var(--card); color:var(--text); box-shadow:0 8px 32px rgba(0,0,0,.35); }
+  dialog::backdrop { background:rgba(0,0,0,.45); }
+  dialog h2 { margin-bottom:.25rem; }
+  dialog label { display:block; margin-top:.75rem; font-size:.85rem; font-weight:600; }
+  dialog label.chk { display:flex; gap:.5rem; align-items:center; font-weight:400; }
+  dialog input[type=text], dialog input[type=date], dialog input[type=datetime-local], dialog select, dialog textarea {
+    width:100%; margin-top:.3rem; padding:.55rem; font:inherit; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:8px; }
+  dialog select { cursor:pointer; }
+  .row2 { display:grid; grid-template-columns:1fr 1fr; gap:.75rem; }
+  .facts { display:flex; gap:.5rem; align-items:center; margin-top:1.25rem; }
+  .grow { flex:1; }
+  button.danger { background:var(--errbg); color:var(--err); }
+  .ferr { margin-top:.5rem; padding:.6rem .8rem; border-radius:8px; background:var(--errbg); color:var(--err); font-size:.9rem; }
 </style>
 </head>
 <body>
@@ -91,6 +105,7 @@
     <div class="head">
       <h2 id="ev-title">Propers esdeveniments</h2>
       <div class="tools">
+        <button id="btn-new" hidden>+ Nou esdeveniment</button>
         <div class="seg">
           <button id="v-grid" class="on">5 setmanes</button>
           <button id="v-list">Llista</button>
@@ -113,13 +128,40 @@
 
 <div id="pop" hidden role="tooltip"></div>
 
+<dialog id="dlg">
+  <form id="f" autocomplete="off">
+    <h2 id="f-title">Nou esdeveniment</h2>
+    <div id="f-err" class="ferr" hidden></div>
+    <label>Títol <input type="text" id="f-summary" required></label>
+    <label>Calendari <select id="f-cal"></select></label>
+    <label class="chk"><input type="checkbox" id="f-allday"> Tot el dia</label>
+    <div class="row2">
+      <label>Inici <input id="f-start" type="datetime-local" required></label>
+      <label>Final <input id="f-end" type="datetime-local" required></label>
+    </div>
+    <label>Lloc <input type="text" id="f-loc"></label>
+    <label>Descripció <textarea id="f-desc" rows="4"></textarea></label>
+    <p id="f-note" class="muted small" hidden>Esdeveniment recurrent: els canvis només afecten aquesta ocurrència.</p>
+    <div class="facts">
+      <button type="button" id="f-del" class="danger" hidden>Esborra</button>
+      <span class="grow"></span>
+      <button type="button" id="f-cancel" class="sec">Cancel·la</button>
+      <button type="submit" id="f-save">Desa</button>
+    </div>
+  </form>
+</dialog>
+
 <script>
   // ====== CONFIGURACIÓ: enganxa aquí el teu ID de client de Google Cloud ======
   // (L'ID de client no és secret. Mai no hi posis el "secret de client".)
-  const CLIENT_ID = "419710279198-q9va8acipt65pbiifm7ppulofh5q326e.apps.googleusercontent.com";
+  const CLIENT_ID = "EL-TEU-ID-DE-CLIENT.apps.googleusercontent.com";
   // ============================================================================
 
-  const SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
+  // Lectura de calendaris + edició d'esdeveniments (sense tocar la configuració dels calendaris)
+  const SCOPES = [
+    "https://www.googleapis.com/auth/calendar.readonly",
+    "https://www.googleapis.com/auth/calendar.events",
+  ];
   const API = "https://www.googleapis.com/calendar/v3";
   const $ = (s) => document.querySelector(s);
 
@@ -128,6 +170,7 @@
   const hidden = new Set(), expanded = new Set();
   const pop = $("#pop");
   let popTimer = null, pinned = false;
+  let editing = null, origDesc = "", editAllowed = false;
 
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const safeColor = (c) => (/^#[0-9a-f]{6}$/i.test(c || "") ? c : "#888888");
@@ -150,7 +193,7 @@
     }
     tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: CLIENT_ID,
-      scope: SCOPE,
+      scope: SCOPES.join(" "),
       callback: onToken,
       error_callback: (e) => showMsg("No s'ha pogut iniciar la sessió (" + (e.type || "error") + ").", "error"),
     });
@@ -163,9 +206,11 @@
 
   function onToken(resp) {
     if (resp.error) return showMsg("Google ha retornat un error: " + resp.error, "error");
-    if (!google.accounts.oauth2.hasGrantedAllScopes(resp, SCOPE)) {
+    if (!google.accounts.oauth2.hasGrantedAllScopes(resp, SCOPES[0])) {
       return showMsg("Cal acceptar el permís de lectura dels calendaris per poder continuar.", "error");
     }
+    // Si l'usuari no concedeix el permís d'edició, pot continuar però només en mode lectura
+    editAllowed = google.accounts.oauth2.hasGrantedAllScopes(resp, SCOPES[1]);
     token = resp.access_token;
     setSignedIn(true);
     load();
@@ -178,16 +223,21 @@
     setSignedIn(false);
   }
 
-  async function api(path, params) {
+  async function api(path, params, opt) {
     const url = API + path + (params ? "?" + new URLSearchParams(params) : "");
-    const r = await fetch(url, { headers: { Authorization: "Bearer " + token } });
+    const init = { headers: { Authorization: "Bearer " + token } };
+    if (opt) {
+      init.method = opt.method;
+      if (opt.body) { init.headers["Content-Type"] = "application/json"; init.body = JSON.stringify(opt.body); }
+    }
+    const r = await fetch(url, init);
     if (r.status === 401) { signOut(); throw new Error("La sessió ha caducat. Torna a entrar."); }
     if (!r.ok) {
       let m = "Error " + r.status;
       try { m = (await r.json()).error.message || m; } catch (_) {}
       throw new Error(m);
     }
-    return r.json();
+    return r.status === 204 ? null : r.json();
   }
 
   const startMs = (e) => (e.start.dateTime ? Date.parse(e.start.dateTime) : Date.parse(e.start.date + "T00:00:00"));
@@ -324,6 +374,7 @@
       <div class="pm">${esc(cal.summaryOverride || cal.summary)}</div>
       ${e.location ? `<div class="pm">Lloc: ${esc(e.location)}</div>` : ""}
       ${desc ? `<div class="pd">${esc(desc.length > 800 ? desc.slice(0, 800) + "…" : desc)}</div>` : ""}
+      ${editAllowed && canEditEvent(e) ? `<div class="pl"><button class="sec" data-edit="${e._i}">Edita</button></div>` : ""}
       ${links.length ? `<div class="pl">${links.join(" · ")}</div>` : ""}`;
   }
 
@@ -350,11 +401,12 @@
 
   function render() {
     hidePop(true);
+    $("#btn-new").hidden = !(editAllowed && calendars.some(canWrite));
     $("#cals").innerHTML = calendars.map((c, i) => `
       <li class="cal"><label>
         <input type="checkbox" data-i="${i}" ${hidden.has(c.id) ? "" : "checked"}>
         <span class="dot" style="background:${safeColor(c.backgroundColor)}"></span>
-        <span>${esc(c.summaryOverride || c.summary)}</span>
+        <span>${esc(c.summaryOverride || c.summary)}${canWrite(c) ? "" : ' <span class="muted small">(només lectura)</span>'}</span>
       </label></li>`).join("") || '<li class="muted">No tens cap calendari activat.</li>';
 
     $("#ev-title").textContent = view === "grid" ? gridTitle() : "Propers esdeveniments";
@@ -428,6 +480,154 @@
   document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") hidePop(true); });
   window.addEventListener("scroll", (ev) => { if (!pop.contains(ev.target)) hidePop(true); }, true);
   window.addEventListener("resize", () => hidePop(true));
+
+  // ================= Edició d'esdeveniments =================
+  const dlg = $("#dlg");
+  const pad = (n) => String(n).padStart(2, "0");
+  const toDay = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const toLocal = (d) => `${toDay(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const canWrite = (c) => c.accessRole === "owner" || c.accessRole === "writer";
+  // Només els esdeveniments normals es poden editar (no aniversaris, ubicació de treball, etc.)
+  const canEditEvent = (e) => canWrite(e._cal) && (!e.eventType || e.eventType === "default");
+
+  function openForm(e) {
+    const writable = calendars.filter(canWrite);
+    if (!editAllowed || !writable.length) return;
+    editing = e || null;
+    origDesc = e ? plain(e.description) : "";
+    $("#f-title").textContent = e ? "Editar esdeveniment" : "Nou esdeveniment";
+
+    const sel = $("#f-cal");
+    sel.innerHTML = writable.map((c) => `<option value="${esc(c.id)}">${esc(c.summaryOverride || c.summary)}</option>`).join("");
+    sel.value = e ? e._cal.id : (writable.find((c) => c.primary) || writable[0]).id;
+    sel.disabled = !!e;   // en editar no es pot canviar de calendari
+
+    let f;
+    if (e) {
+      const allday = !e.start.dateTime;
+      f = {
+        allday, summary: e.summary || "", loc: e.location || "", desc: origDesc,
+        start: allday ? e.start.date : toLocal(new Date(e.start.dateTime)),
+        end: allday ? toDay(addDays(parseDay(e.end.date), -1)) : toLocal(new Date(e.end.dateTime)),
+      };
+    } else {
+      const s = new Date(); s.setMinutes(0, 0, 0); s.setHours(s.getHours() + 1);
+      f = { allday: false, summary: "", loc: "", desc: "", start: toLocal(s), end: toLocal(new Date(s.getTime() + 36e5)) };
+    }
+    for (const id of ["#f-start", "#f-end"]) $(id).type = f.allday ? "date" : "datetime-local";
+    $("#f-allday").checked = f.allday;
+    $("#f-start").value = f.start; $("#f-end").value = f.end;
+    $("#f-summary").value = f.summary; $("#f-loc").value = f.loc; $("#f-desc").value = f.desc;
+    $("#f-del").hidden = !e;
+    $("#f-note").hidden = !(e && e.recurringEventId);
+    $("#f-err").hidden = true;
+    dlg.showModal();
+  }
+
+  // Llegeix i valida el formulari
+  function buildFields() {
+    const summary = $("#f-summary").value.trim();
+    if (!summary) throw new Error("El títol és obligatori.");
+    const allday = $("#f-allday").checked, s = $("#f-start").value, en = $("#f-end").value;
+    if (!s || !en) throw new Error("Cal indicar l'inici i el final.");
+    const f = { summary, location: $("#f-loc").value.trim() };
+    // La descripció de Google pot ser HTML: només s'envia si l'usuari l'ha canviat, per no perdre el format
+    const desc = $("#f-desc").value.trim();
+    if (!editing || desc !== origDesc) f.description = desc;
+    if (allday) {
+      const a = parseDay(s.slice(0, 10)), b = parseDay(en.slice(0, 10));
+      if (isNaN(a) || isNaN(b)) throw new Error("Data no vàlida.");
+      if (b < a) throw new Error("La data final no pot ser anterior a la inicial.");
+      f.start = { date: toDay(a) };
+      f.end = { date: toDay(addDays(b, 1)) };   // a Google el final d'un dia sencer és exclusiu
+    } else {
+      const a = new Date(s), b = new Date(en);
+      if (isNaN(a) || isNaN(b)) throw new Error("Data o hora no vàlides.");
+      if (b <= a) throw new Error("El final ha de ser posterior a l'inici.");
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      f.start = { dateTime: a.toISOString(), timeZone: tz };
+      f.end = { dateTime: b.toISOString(), timeZone: tz };
+    }
+    return f;
+  }
+
+  function applyFields(target, f) {
+    for (const k of ["summary", "location", "description"]) {
+      if (!(k in f)) continue;
+      if (f[k]) target[k] = f[k]; else delete target[k];
+    }
+    target.start = f.start;
+    target.end = f.end;
+    return target;
+  }
+
+  const evPath = (e) => `/calendars/${encodeURIComponent(e._cal.id)}/events/${encodeURIComponent(e.id)}`;
+
+  async function afterChange(text) {
+    dlg.close();
+    await load();
+    if (!$("#msg").textContent) showMsg(text);
+  }
+
+  function formError(err) {
+    if (!token) { dlg.close(); return showMsg(err.message, "error"); }   // la sessió ha caducat
+    $("#f-err").textContent = err.message;
+    $("#f-err").hidden = false;
+  }
+
+  $("#f-allday").onchange = () => {
+    const on = $("#f-allday").checked;
+    [["#f-start", "09:00"], ["#f-end", "10:00"]].forEach(([id, hm]) => {
+      const el = $(id), v = el.value;
+      el.type = on ? "date" : "datetime-local";
+      el.value = on ? v.slice(0, 10) : (v.length === 10 ? v + "T" + hm : v);
+    });
+  };
+
+  $("#f").onsubmit = async (ev) => {
+    ev.preventDefault();
+    $("#f-err").hidden = true;
+    $("#f-save").disabled = true;
+    try {
+      const f = buildFields();
+      if (editing) {
+        // Es llegeix l'esdeveniment actual i se'n modifiquen només els camps editats,
+        // així es conserven convidats, recordatoris, etc.
+        const cur = await api(evPath(editing));
+        await api(evPath(editing), null, { method: "PUT", body: applyFields(cur, f) });
+      } else {
+        await api(`/calendars/${encodeURIComponent($("#f-cal").value)}/events`, null,
+          { method: "POST", body: applyFields({}, f) });
+      }
+      await afterChange("Esdeveniment desat.");
+    } catch (err) {
+      formError(err);
+    } finally {
+      $("#f-save").disabled = false;
+    }
+  };
+
+  $("#f-del").onclick = async () => {
+    if (!editing) return;
+    const quin = editing.recurringEventId ? "aquesta ocurrència de l'esdeveniment" : "l'esdeveniment";
+    if (!confirm(`Segur que vols esborrar ${quin}?`)) return;
+    try {
+      await api(evPath(editing), null, { method: "DELETE" });
+      await afterChange("Esdeveniment esborrat.");
+    } catch (err) {
+      formError(err);
+    }
+  };
+
+  $("#f-cancel").onclick = () => dlg.close();
+  $("#btn-new").onclick = () => openForm(null);
+  pop.addEventListener("click", (ev) => {
+    const b = ev.target.closest("[data-edit]");
+    if (!b) return;
+    const e = events[+b.dataset.edit];
+    hidePop(true);
+    if (e) openForm(e);
+  });
   $("#cals").onchange = (ev) => {
     const c = calendars[+ev.target.dataset.i];
     if (!c) return;
