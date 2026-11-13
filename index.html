@@ -57,6 +57,8 @@
   .chip { display:block; font-size:.75rem; padding:.1rem .35rem; margin-bottom:2px; border-radius:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .more { font-size:.75rem; color:var(--accent); background:none; border:0; padding:0; cursor:pointer; }
   .chip, .ev { cursor:pointer; }
+  .cal-grid.week .cell { min-height:340px; }
+  .cal-grid.week .chip { white-space:normal; }
   .cell.can-new { cursor:pointer; }
   .cell.can-new:hover { background:var(--soft); }
   .cell.can-new:hover .dn::after { content:" +"; color:var(--accent); font-weight:700; }
@@ -115,6 +117,7 @@
       <div class="tools">
         <button id="btn-new" hidden>+ Nou esdeveniment</button>
         <div class="seg">
+          <button id="v-week">1 setmana</button>
           <button id="v-grid" class="on">5 setmanes</button>
           <button id="v-list">Llista</button>
         </div>
@@ -162,7 +165,7 @@
 <script>
   // ====== CONFIGURACIÓ: enganxa aquí el teu ID de client de Google Cloud ======
   // (L'ID de client no és secret. Mai no hi posis el "secret de client".)
-  const CLIENT_ID = "419710279198-q9va8acipt65pbiifm7ppulofh5q326e.apps.googleusercontent.com";
+  const CLIENT_ID = "EL-TEU-ID-DE-CLIENT.apps.googleusercontent.com";
   // ============================================================================
 
   // Lectura de calendaris + edició d'esdeveniments (sense tocar la configuració dels calendaris)
@@ -261,15 +264,15 @@
       calendars = list.items.filter((c) => c.selected);
 
       let min, max;
-      if (view === "grid") {
+      if (view !== "list") {
         gridStart = weekStart(weekOffset);
-        min = gridStart; max = addDays(gridStart, 35);
+        min = gridStart; max = addDays(gridStart, view === "week" ? 7 : 35);
       } else {
         min = new Date(); max = new Date(Date.now() + (+$("#days").value) * 864e5);
       }
       const params = {
         timeMin: min.toISOString(), timeMax: max.toISOString(),
-        singleEvents: "true", orderBy: "startTime", maxResults: view === "grid" ? "250" : "100",
+        singleEvents: "true", orderBy: "startTime", maxResults: view !== "list" ? "250" : "100",
       };
       let failed = 0;
       const results = await Promise.all(calendars.map((c) =>
@@ -308,7 +311,7 @@
 
   function gridTitle() {
     if (!gridStart) return "Propers esdeveniments";
-    const last = addDays(gridStart, 34);
+    const last = addDays(gridStart, view === "week" ? 6 : 34);
     const f = (d) => d.toLocaleDateString("ca", { day: "numeric", month: "short" });
     return f(gridStart) + " – " + f(last) + " " + last.getFullYear();
   }
@@ -320,17 +323,18 @@
     const todayT = midnight(new Date()).getTime();
     const canNew = editAllowed && calendars.some(canWrite);
 
-    let html = '<div class="gridwrap"><div class="cal-grid">';
+    let html = `<div class="gridwrap"><div class="cal-grid${view === "week" ? " week" : ""}">`;
     for (let i = 0; i < 7; i++) {
       html += `<div class="dow">${esc(addDays(gridStart, i).toLocaleDateString("ca", { weekday: "short" }))}</div>`;
     }
-    for (let i = 0; i < 35; i++) {
+    const n = view === "week" ? 7 : 35, limit = view === "week" ? Infinity : 3;   // a la setmana es mostren tots
+    for (let i = 0; i < n; i++) {
       const day = addDays(gridStart, i), t = day.getTime();
       const list = visible
         .filter((x) => x.span[0].getTime() <= t && t <= x.span[1].getTime())
         .sort((a, b) => (a.e.start.dateTime ? 1 : 0) - (b.e.start.dateTime ? 1 : 0) || startMs(a.e) - startMs(b.e));
-      const key = String(t), open = expanded.has(key), shown = open ? list : list.slice(0, 3);
-      const label = (i === 0 || day.getDate() === 1)
+      const key = String(t), open = expanded.has(key), shown = open ? list : list.slice(0, limit);
+      const label = (view === "week" || i === 0 || day.getDate() === 1)
         ? day.toLocaleDateString("ca", { day: "numeric", month: "short" }) : String(day.getDate());
 
       html += `<div class="cell${t === todayT ? " today" : ""}${canNew ? " can-new" : ""}"${canNew ? ` data-new="${t}"` : ""}><div class="dn">${esc(label)}</div>`;
@@ -340,8 +344,8 @@
         const name = e.summary || "(sense títol)";
         html += `<span class="chip" tabindex="0" data-ev="${e._i}" style="background:${col};color:${textOn(col)}">${esc(time + name)}</span>`;
       }
-      if (list.length > 3) {
-        html += `<button class="more" data-day="${key}">${open ? "mostra menys" : "+" + (list.length - 3) + " més"}</button>`;
+      if (list.length > limit) {
+        html += `<button class="more" data-day="${key}">${open ? "mostra menys" : "+" + (list.length - limit) + " més"}</button>`;
       }
       html += "</div>";
     }
@@ -419,8 +423,8 @@
         <span>${esc(c.summaryOverride || c.summary)}${canWrite(c) ? "" : ' <span class="muted small">(només lectura)</span>'}</span>
       </label></li>`).join("") || '<li class="muted">No tens cap calendari activat.</li>';
 
-    $("#ev-title").textContent = view === "grid" ? gridTitle() : "Propers esdeveniments";
-    if (view === "grid") { $("#events").innerHTML = gridHTML(); return; }
+    $("#ev-title").textContent = view !== "list" ? gridTitle() : "Propers esdeveniments";
+    if (view !== "list") { $("#events").innerHTML = gridHTML(); return; }
 
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const dayKey = (ms) => { const d = new Date(Math.max(ms, today.getTime())); d.setHours(0, 0, 0, 0); return d.getTime(); };
@@ -457,12 +461,14 @@
 
   function setView(v) {
     view = v;
+    $("#v-week").classList.toggle("on", v === "week");
     $("#v-grid").classList.toggle("on", v === "grid");
     $("#v-list").classList.toggle("on", v === "list");
-    $("#nav").hidden = v !== "grid";
+    $("#nav").hidden = v === "list";
     $("#days").hidden = v !== "list";
     if (token) load();
   }
+  $("#v-week").onclick = () => setView("week");
   $("#v-grid").onclick = () => setView("grid");
   $("#v-list").onclick = () => setView("list");
   $("#nav-prev").onclick = () => { weekOffset--; load(); };
