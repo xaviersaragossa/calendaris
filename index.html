@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Calendaris Pere Relats</title>
 <style>
-  :root { color-scheme: light dark; --bg:#f4f5f7; --card:#fff; --text:#222; --muted:#666; --line:#eee; --accent:#1a73e8; --soft:#eef3fd; --err:#b00020; --errbg:#fdecea; }
+  :root { color-scheme: light dark; --onacc:#fff; --bg:#f4f5f7; --card:#fff; --text:#222; --muted:#666; --line:#eee; --accent:#1a73e8; --soft:#eef3fd; --err:#b00020; --errbg:#fdecea; }
   @media (prefers-color-scheme: dark) {
-    :root { --bg:#16181c; --card:#1f2227; --text:#e8eaed; --muted:#9aa0a6; --line:#2c3036; --accent:#8ab4f8; --soft:#26303f; --err:#f28b82; --errbg:#3b2220; }
+    :root { --onacc:#16181c; --bg:#16181c; --card:#1f2227; --text:#e8eaed; --muted:#9aa0a6; --line:#2c3036; --accent:#8ab4f8; --soft:#26303f; --err:#f28b82; --errbg:#3b2220; }
   }
   * { box-sizing: border-box; }
   body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--text); }
@@ -85,6 +85,21 @@
   .inline select, .inline input[type=date] { width:auto; margin-top:0; }
   dialog label.wd { display:inline-flex; gap:.3rem; align-items:center; margin:0; padding:.25rem .5rem; font-weight:400; border:1px solid var(--line); border-radius:8px; cursor:pointer; }
   #rep-opts { margin-top:.25rem; padding-left:.75rem; border-left:3px solid var(--soft); }
+  dialog.wide { width:min(760px, 96vw); }
+  .calnav { justify-content:space-between; }
+  .cal3 { display:grid; grid-template-columns:repeat(3, 1fr); gap:.75rem; margin-top:.5rem; }
+  @media (max-width:640px) { .cal3 { grid-template-columns:1fr; } }
+  .m3 h4 { margin:0 0 .25rem; text-align:center; text-transform:capitalize; font-size:.85rem; }
+  .m3 .g { display:grid; grid-template-columns:repeat(7, 1fr); gap:2px; }
+  .m3 .wdh { text-align:center; color:var(--muted); font-size:.7rem; }
+  .cd { padding:.25rem 0; text-align:center; font:inherit; font-size:.8rem; color:var(--text); background:transparent; border:0; border-radius:6px; cursor:pointer; }
+  .cd:hover:not(:disabled) { background:var(--soft); }
+  .cd.sel { background:var(--accent); color:var(--onacc); }
+  .cd.add { box-shadow:inset 0 0 0 2px var(--text); }
+  .cd.lock { outline:2px solid var(--text); outline-offset:-2px; }
+  .cd:disabled { opacity:.3; cursor:default; }
+  .cd.lock:disabled { opacity:1; }
+  .cd.blank { visibility:hidden; }
   button.danger { background:var(--errbg); color:var(--err); }
   .ferr { margin-top:.5rem; padding:.6rem .8rem; border-radius:8px; background:var(--errbg); color:var(--err); font-size:.9rem; }
 </style>
@@ -161,13 +176,25 @@
           <option value="none">No es repeteix</option>
           <option value="daily">Cada dia</option>
           <option value="weekly">Cada setmana</option>
+          <option value="biweekly">Cada dues setmanes</option>
           <option value="monthly">Cada mes</option>
           <option value="yearly">Cada any</option>
+          <option value="custom">Personalitzat…</option>
         </select>
       </label>
+      <p id="rep-hint" class="muted small" hidden></p>
       <p id="rep-note" class="muted small" hidden>Aquest esdeveniment té una repetició avançada que no es pot editar aquí. Es conservarà tal com està.</p>
       <div id="rep-opts" hidden>
-        <div class="inline">Repeteix cada <input type="number" id="f-int" min="1" max="99" value="1" aria-label="Interval"> <span id="f-unit">setmana</span></div>
+        <div class="inline">Patró
+          <select id="f-cfreq">
+            <option value="daily">Cada dia</option>
+            <option value="weekly" selected>Cada setmana</option>
+            <option value="monthly">Cada mes</option>
+            <option value="yearly">Cada any</option>
+            <option value="days">Només els dies que triï</option>
+          </select>
+        </div>
+        <div id="row-int" class="inline">Repeteix cada <input type="number" id="f-int" min="1" max="99" value="1" aria-label="Interval"> <span id="f-unit">setmana</span></div>
         <div id="rep-week" class="inline" hidden>
           <label class="wd"><input type="checkbox" id="wd-MO"> Dl</label>
           <label class="wd"><input type="checkbox" id="wd-TU"> Dt</label>
@@ -178,7 +205,8 @@
           <label class="wd"><input type="checkbox" id="wd-SU"> Dg</label>
         </div>
         <label id="rep-month-wrap" hidden>Es repeteix <select id="f-mmode"></select></label>
-        <div class="inline">Acaba
+        <p id="rep-adj" class="muted small" hidden></p>
+        <div id="row-end" class="inline">Acaba
           <select id="f-endmode">
             <option value="never">Mai</option>
             <option value="until">El dia</option>
@@ -187,6 +215,13 @@
           <input type="date" id="f-until" hidden>
           <span id="f-count-wrap" hidden><input type="number" id="f-count" min="1" max="999" value="10"> repeticions</span>
         </div>
+        <div class="inline calnav">
+          <button type="button" class="sec" id="cal-prev" aria-label="Mes anterior">◀</button>
+          <span class="muted small grow">Clica un dia per afegir-lo o treure'l de la repetició</span>
+          <button type="button" class="sec" id="cal-next" aria-label="Mes següent">▶</button>
+        </div>
+        <div id="cal3" class="cal3"></div>
+        <p class="muted small">El dia d'inici sempre en forma part. Els dies amb vora s'han afegit a mà.</p>
       </div>
     </div>
     <label>Lloc <input type="text" id="f-loc"></label>
@@ -204,7 +239,7 @@
 <script>
   // ====== CONFIGURACIÓ: enganxa aquí el teu ID de client de Google Cloud ======
   // (L'ID de client no és secret. Mai no hi posis el "secret de client".)
-  const CLIENT_ID = "419710279198-q9va8acipt65pbiifm7ppulofh5q326e.apps.googleusercontent.com";
+  const CLIENT_ID = "EL-TEU-ID-DE-CLIENT.apps.googleusercontent.com";
   // ============================================================================
 
   // Lectura de calendaris + edició d'esdeveniments (sense tocar la configuració dels calendaris)
@@ -221,6 +256,7 @@
   const pop = $("#pop");
   let popTimer = null, pinned = false, popEl = null;
   let editing = null, origDesc = "", editAllowed = false, repApplies = true, repKeep = false;
+  let formTz = Intl.DateTimeFormat().resolvedOptions().timeZone;   // zona horària de l'esdeveniment que s'està editant
 
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const safeColor = (c) => (/^#[0-9a-f]{6}$/i.test(c || "") ? c : "#888888");
@@ -553,6 +589,7 @@
     editing = e || null;
     origDesc = e ? plain(e.description) : "";
     repApplies = !(e && e.recurringEventId);   // una ocurrència sola no pot tenir repetició pròpia
+    formTz = (e && e.start && e.start.timeZone) || Intl.DateTimeFormat().resolvedOptions().timeZone;
     $("#f-title").textContent = e ? "Editar esdeveniment" : "Nou esdeveniment";
 
     const sel = $("#f-cal");
@@ -591,50 +628,256 @@
     if (!dlg.open) dlg.showModal();
   }
 
-  // ---------- Repetició (regles RRULE de Google Calendar) ----------
+  // ---------- Repetició: patrons (RRULE) + dies concrets (RDATE / EXDATE) ----------
   const WD = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"];
-  const wdOf = (d) => WD[(d.getDay() + 6) % 7];
-  const ORD = ["primer", "segon", "tercer", "quart"];
+  const WD_LABEL = ["Dl", "Dt", "Dc", "Dj", "Dv", "Ds", "Dg"];
   const DOW = ["diumenge", "dilluns", "dimarts", "dimecres", "dijous", "divendres", "dissabte"];
+  const wdOf = (d) => WD[(d.getDay() + 6) % 7];
   const UNIT = { daily: ["dia", "dies"], weekly: ["setmana", "setmanes"], monthly: ["mes", "mesos"], yearly: ["any", "anys"] };
+  const exSet = new Set(), addSet = new Set();   // dies concrets: treure (EXDATE) i afegir (RDATE), com "YYYY-MM-DD"
+  let calBase = null, lastTop = "none";
 
   function startDay() {
     const v = $("#f-start").value, d = v ? parseDay(v.slice(0, 10)) : new Date();
     return isNaN(d) ? new Date() : d;
   }
 
-  // Opcions mensuals segons la data d'inici: "el dia 12", "el segon dijous", "l'últim dijous"
-  function refreshMonthly(want) {
-    const d = startDay(), sel = $("#f-mmode");
-    const dim = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-    const opts = [["day", `El dia ${d.getDate()} de cada mes`]];
-    if (d.getDate() <= 28) opts.push(["nth", `El ${ORD[Math.ceil(d.getDate() / 7) - 1]} ${DOW[d.getDay()]} de cada mes`]);
-    if (d.getDate() + 7 > dim) opts.push(["last", `L'últim ${DOW[d.getDay()]} de cada mes`]);
-    const prev = typeof want === "string" ? want : sel.value;
-    sel.innerHTML = opts.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join("");
-    sel.value = opts.some((o) => o[0] === prev) ? prev : "day";
+  // Opcions mensuals: "sameday" = el mateix dia del mes; "dates" = dies 1 i 16; "firstmon" = primer dilluns
+  const monthlyMatches = (d, mode) => mode === "firstmon" ? (d.getDay() === 1 && d.getDate() <= 7)
+    : mode === "dates" ? (d.getDate() === 1 || d.getDate() === 16) : true;
+  function nextMonthly(d, mode) {
+    for (let i = 0; i <= 62; i++) { const c = addDays(d, i); if (monthlyMatches(c, mode)) return c; }
+    return d;
   }
 
-  function updateRepUI(want) {
-    const f = $("#f-rep").value, on = f !== "none";
-    $("#rep-opts").hidden = !on;
-    if (!on) return;
-    const n = parseInt($("#f-int").value, 10) || 1;
-    $("#f-unit").textContent = UNIT[f][n === 1 ? 0 : 1];
-    $("#rep-week").hidden = f !== "weekly";
-    $("#rep-month-wrap").hidden = f !== "monthly";
-    if (f === "weekly" && !WD.some((c) => $("#wd-" + c).checked)) $("#wd-" + wdOf(startDay())).checked = true;
-    if (f === "monthly") refreshMonthly(want);
-    const m = $("#f-endmode").value;
-    $("#f-until").hidden = m !== "until";
-    $("#f-count-wrap").hidden = m !== "count";
-    if (m === "until" && !$("#f-until").value) {
-      const sd = startDay();
-      $("#f-until").value = toDay(new Date(sd.getFullYear() + 1, sd.getMonth(), sd.getDate()));
+  function refreshMonthly(want, sd) {
+    const sel = $("#f-mmode");
+    const opts = [["sameday", `El dia ${sd.getDate()} de cada mes`], ["dates", "Els dies 1 i 16 del mes"], ["firstmon", "El primer dilluns de mes"]];
+    const prev = typeof want === "string" ? want : sel.value;
+    sel.innerHTML = opts.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join("");
+    sel.value = opts.some((o) => o[0] === prev) ? prev : "sameday";
+  }
+
+  // Mou les dates d'inici i final (mantenint la durada) un nombre de dies
+  function shiftDates(days) {
+    for (const id of ["#f-start", "#f-end"]) {
+      const v = $(id).value;
+      if (!v) continue;
+      if (v.length === 10) $(id).value = toDay(addDays(parseDay(v), days));
+      else { const d = new Date(v); $(id).value = toLocal(new Date(d.getFullYear(), d.getMonth(), d.getDate() + days, d.getHours(), d.getMinutes())); }
     }
   }
 
-  // Interpreta una regla existent; retorna null si té opcions que aquest formulari no sap representar
+  // Si la data d'inici no coincideix amb l'opció mensual triada, es mou a la primera data que sí
+  function alignMonthly() {
+    if ($("#f-rep").value !== "custom" || $("#f-cfreq").value !== "monthly") return;
+    const m = $("#f-mmode").value, sd = startDay();
+    if (monthlyMatches(sd, m)) { $("#rep-adj").hidden = true; return; }
+    const nd = nextMonthly(sd, m);
+    shiftDates(Math.round((Date.UTC(nd.getFullYear(), nd.getMonth(), nd.getDate()) - Date.UTC(sd.getFullYear(), sd.getMonth(), sd.getDate())) / 864e5));
+    $("#rep-adj").textContent = "S'ha mogut la data d'inici al " + nd.toLocaleDateString("ca") + " perquè coincideixi amb la repetició.";
+    $("#rep-adj").hidden = false;
+    renderCal3();
+  }
+
+  // ----- Patró -----
+  // Llegeix el patró del formulari. Les opcions simples són patrons fixos; "Personalitzat" llegeix els controls.
+  function readPattern() {
+    const top = $("#f-rep").value, sd = startDay();
+    if (top === "daily") return { freq: "daily", interval: 1 };
+    if (top === "weekly") return { freq: "weekly", interval: 1, days: [wdOf(sd)] };
+    if (top === "biweekly") return { freq: "weekly", interval: 2, days: [wdOf(sd)] };
+    if (top === "monthly") return { freq: "monthly", interval: 1, mmode: "sameday" };
+    if (top === "yearly") return { freq: "yearly", interval: 1 };
+    const freq = $("#f-cfreq").value;
+    const p = { freq, interval: Math.min(99, Math.max(1, parseInt($("#f-int").value, 10) || 1)), end: $("#f-endmode").value };
+    if (freq === "weekly") p.days = WD.filter((c) => $("#wd-" + c).checked);
+    if (freq === "monthly") p.mmode = $("#f-mmode").value;
+    if (p.end === "count") p.count = parseInt($("#f-count").value, 10);
+    if (p.end === "until") p.until = parseDay($("#f-until").value);
+    return p;
+  }
+
+  function validatePattern(p, sd) {
+    if (!UNIT[p.freq]) return;   // "només els dies que triï": no hi ha regla
+    if (p.freq === "weekly" && !p.days.length) throw new Error("Marca almenys un dia de la setmana.");
+    if (p.freq === "monthly" && !monthlyMatches(sd, p.mmode)) {
+      throw new Error("La data d'inici ha de ser " + (p.mmode === "firstmon" ? "el primer dilluns d'un mes" : "el dia 1 o el 16 d'un mes") + " perquè coincideixi amb la repetició.");
+    }
+    if (p.end === "count" && !(p.count >= 1 && p.count <= 999)) throw new Error("El nombre de repeticions ha de ser entre 1 i 999.");
+    if (p.end === "until") {
+      if (!p.until || isNaN(p.until)) throw new Error("Indica el dia en què acaba la repetició.");
+      if (p.until < sd) throw new Error("La repetició no pot acabar abans del dia d'inici.");
+    }
+  }
+
+  function patternToRRule(p, allday) {
+    if (!UNIT[p.freq]) return null;
+    const parts = ["FREQ=" + p.freq.toUpperCase()];
+    if (p.interval > 1) parts.push("INTERVAL=" + p.interval);
+    if (p.freq === "weekly") parts.push("BYDAY=" + p.days.join(","));
+    if (p.freq === "monthly") {
+      parts.push(p.mmode === "firstmon" ? "BYDAY=1MO" : p.mmode === "dates" ? "BYMONTHDAY=1,16" : "BYMONTHDAY=" + startDay().getDate());
+    }
+    if (p.end === "count") parts.push("COUNT=" + p.count);
+    else if (p.end === "until") {
+      if (allday) parts.push("UNTIL=" + toDay(p.until).replace(/-/g, ""));
+      else {   // en esdeveniments amb hora, Google vol l'UNTIL en UTC: es fa servir el final d'aquell dia
+        const z = new Date(p.until.getFullYear(), p.until.getMonth(), p.until.getDate(), 23, 59, 59);
+        parts.push("UNTIL=" + z.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, ""));
+      }
+    }
+    return "RRULE:" + parts.join(";");
+  }
+
+  // Dies (com "YYYY-MM-DD") que genera el patró des de la data d'inici fins a "limit" (inclòs).
+  // La data d'inici sempre en forma part (com a primera ocurrència).
+  function expand(p, sd, limit) {
+    const out = new Set([toDay(sd)]);
+    if (!UNIT[p.freq]) return out;
+    const lim = p.end === "until" && p.until && !isNaN(p.until) && p.until < limit ? p.until : limit;
+    const max = p.end === "count" && p.count >= 1 ? p.count : Infinity;
+    const n = p.interval || 1, list = [sd];
+    let guard = 0;
+    if (p.freq === "daily") {
+      for (let i = n; guard++ < 5000; i += n) { const d = addDays(sd, i); if (d > lim || list.length >= max) break; list.push(d); }
+    } else if (p.freq === "weekly") {
+      const idx = (p.days || []).map((c) => WD.indexOf(c)).sort((x, y) => x - y);
+      const w0 = addDays(sd, -((sd.getDay() + 6) % 7));   // dilluns de la setmana d'inici
+      for (let w = 0; guard++ < 2000; w += n) {
+        const ws = addDays(w0, 7 * w);
+        if (ws > lim || list.length >= max) break;
+        for (const di of idx) { const d = addDays(ws, di); if (d > sd && d <= lim && list.length < max) list.push(d); }
+      }
+    } else if (p.freq === "monthly") {
+      for (let m = 0; guard++ < 600; m += n) {
+        const first = new Date(sd.getFullYear(), sd.getMonth() + m, 1);
+        if (first > lim || list.length >= max) break;
+        let cands = [];
+        if (p.mmode === "dates") cands = [first, new Date(first.getFullYear(), first.getMonth(), 16)];
+        else if (p.mmode === "firstmon") cands = [addDays(first, (8 - first.getDay()) % 7)];
+        else { const d = new Date(first.getFullYear(), first.getMonth(), sd.getDate()); if (d.getMonth() === first.getMonth()) cands = [d]; }   // el 31: s'ometen els mesos que no el tenen
+        for (const d of cands) if (d > sd && d <= lim && list.length < max) list.push(d);
+      }
+    } else if (p.freq === "yearly") {
+      for (let y = n; guard++ < 200; y += n) {
+        const d = new Date(sd.getFullYear() + y, sd.getMonth(), sd.getDate());
+        if (d.getMonth() !== sd.getMonth()) continue;   // 29 de febrer en anys no de traspàs
+        if (d > lim || list.length >= max) break;
+        list.push(d);
+      }
+    }
+    for (const d of list) out.add(toDay(d));
+    return out;
+  }
+
+  // ----- Dies concrets: línies EXDATE / RDATE -----
+  function wallTime(date, tz) {
+    const parts = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hourCycle: "h23", hour: "2-digit", minute: "2-digit", second: "2-digit" }).formatToParts(date);
+    const g = (t) => parts.find((x) => x.type === t).value;
+    return g("hour") + g("minute") + g("second");
+  }
+  function dateLine(kind, keys, allday) {
+    const ds = keys.map((k) => k.replace(/-/g, ""));
+    if (allday) return `${kind};VALUE=DATE:${ds.join(",")}`;
+    const t = wallTime(new Date($("#f-start").value), formTz);
+    return `${kind};TZID=${formTz}:${ds.map((d) => d + "T" + t).join(",")}`;
+  }
+
+  // Construeix la llista "recurrence" de Google (null = no es repeteix)
+  function buildRecurrence(allday) {
+    if ($("#f-rep").value === "none") return null;
+    const sd = startDay(), p = readPattern();
+    validatePattern(p, sd);
+    const lines = [], rr = patternToRRule(p, allday);
+    if (rr) lines.push(rr);
+    if ($("#f-rep").value === "custom") {
+      const sk = toDay(sd);
+      const all = [...exSet, ...addSet].filter((k) => k > sk).sort();
+      const gen = expand(p, sd, all.length ? parseDay(all[all.length - 1]) : sd);
+      const ex = [...exSet].filter((k) => k > sk && gen.has(k)).sort();
+      const add = [...addSet].filter((k) => k > sk && !gen.has(k)).sort();
+      if (ex.length) lines.push(dateLine("EXDATE", ex, allday));
+      if (add.length) lines.push(dateLine("RDATE", add, allday));
+      if (!lines.length) throw new Error("Tria almenys un dia més al calendari, o canvia el patró de repetició.");
+    }
+    return lines;
+  }
+
+  // ----- Calendari de 3 mesos -----
+  function renderCal3() {
+    const sd = startDay(), sk = toDay(sd), minBase = new Date(sd.getFullYear(), sd.getMonth(), 1);
+    if (!calBase || calBase < minBase) calBase = minBase;
+    const gen = expand(readPattern(), sd, new Date(calBase.getFullYear(), calBase.getMonth() + 3, 0));
+    let html = "";
+    for (let m = 0; m < 3; m++) {
+      const first = new Date(calBase.getFullYear(), calBase.getMonth() + m, 1);
+      const dim = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate(), off = (first.getDay() + 6) % 7;
+      html += `<div class="m3"><h4>${esc(first.toLocaleDateString("ca", { month: "long", year: "numeric" }))}</h4><div class="g">`;
+      html += WD_LABEL.map((l) => `<span class="wdh">${l}</span>`).join("");
+      for (let i = 0; i < off; i++) html += '<span class="cd blank"></span>';
+      for (let d = 1; d <= dim; d++) {
+        const k = toDay(new Date(first.getFullYear(), first.getMonth(), d));
+        const before = k < sk, isStart = k === sk;
+        const sel = isStart || (!before && ((gen.has(k) && !exSet.has(k)) || addSet.has(k)));
+        const cls = ["cd", sel ? "sel" : "", isStart ? "lock" : "", sel && !isStart && addSet.has(k) && !gen.has(k) ? "add" : ""].filter(Boolean).join(" ");
+        html += `<button type="button" class="${cls}" data-d="${k}"${before || isStart ? " disabled" : ""}>${d}</button>`;
+      }
+      html += "</div></div>";
+    }
+    $("#cal3").innerHTML = html;
+    $("#cal-prev").disabled = calBase <= minBase;
+  }
+
+  function toggleDay(k) {
+    const sd = startDay();
+    if (k <= toDay(sd)) return;
+    const gen = expand(readPattern(), sd, parseDay(k)).has(k);
+    const sel = (gen && !exSet.has(k)) || addSet.has(k);
+    if (sel) { if (gen) exSet.add(k); addSet.delete(k); }        // treure el dia
+    else { if (gen) exSet.delete(k); else addSet.add(k); }       // afegir el dia
+    renderCal3();
+  }
+
+  // ----- Interfície -----
+  function hintFor(top, sd) {
+    const dia = DOW[sd.getDay()], mes = sd.toLocaleDateString("ca", { day: "numeric", month: "long" });
+    return ({
+      daily: "Es repeteix cada dia.",
+      weekly: `Es repeteix cada setmana, el ${dia}.`,
+      biweekly: `Es repeteix cada dues setmanes, el ${dia}.`,
+      monthly: `Es repeteix el dia ${sd.getDate()} de cada mes.`,
+      yearly: `Es repeteix cada any, el ${mes}.`,
+    })[top] || "";
+  }
+
+  function updateRepUI(want) {
+    const top = $("#f-rep").value, custom = top === "custom", sd = startDay();
+    dlg.classList.toggle("wide", custom);
+    $("#rep-opts").hidden = !custom;
+    const hint = hintFor(top, sd);
+    $("#rep-hint").textContent = hint;
+    $("#rep-hint").hidden = !hint;
+    if (!custom) { $("#rep-adj").hidden = true; return; }
+    const f = $("#f-cfreq").value, hasRule = !!UNIT[f];
+    const n = parseInt($("#f-int").value, 10) || 1;
+    $("#row-int").hidden = !hasRule;
+    $("#row-end").hidden = !hasRule;
+    if (hasRule) $("#f-unit").textContent = UNIT[f][n === 1 ? 0 : 1];
+    $("#rep-week").hidden = f !== "weekly";
+    $("#rep-month-wrap").hidden = f !== "monthly";
+    if (f !== "monthly") $("#rep-adj").hidden = true;
+    if (f === "weekly" && !WD.some((c) => $("#wd-" + c).checked)) $("#wd-" + wdOf(sd)).checked = true;
+    if (f === "monthly") refreshMonthly(want, sd);
+    const m = $("#f-endmode").value;
+    $("#f-until").hidden = m !== "until";
+    $("#f-count-wrap").hidden = m !== "count";
+    if (m === "until" && !$("#f-until").value) $("#f-until").value = toDay(new Date(sd.getFullYear() + 1, sd.getMonth(), sd.getDate()));
+    renderCal3();
+  }
+
+  // ----- Lectura de regles existents -----
+  // Només s'accepten regles que aquest formulari sap representar; la resta es considera "avançada" i es conserva.
   function parseRule(line) {
     const r = {};
     for (const p of line.slice(6).split(";")) { const [k, v] = p.split("="); r[k] = v; }
@@ -646,85 +889,115 @@
       if (r.BYMONTHDAY) return null;
       if (r.BYDAY && !r.BYDAY.split(",").every((c) => WD.includes(c))) return null;
     } else if (r.FREQ === "MONTHLY") {
-      if (r.BYMONTHDAY && r.BYDAY) return null;
-      if (r.BYMONTHDAY && !/^\d{1,2}$/.test(r.BYMONTHDAY)) return null;
-      if (r.BYDAY && !/^(-1|[1-4])(MO|TU|WE|TH|FR|SA|SU)$/.test(r.BYDAY)) return null;
+      const dates = r.BYMONTHDAY === "1,16" && !r.BYDAY, firstMon = r.BYDAY === "1MO" && !r.BYMONTHDAY;
+      const sameday = /^\d{1,2}$/.test(r.BYMONTHDAY || "") && !r.BYDAY;
+      if (!dates && !firstMon && !sameday) return null;
     } else if (r.BYDAY || r.BYMONTHDAY) return null;
     return r;
   }
 
-  // Omple els controls de repetició a partir de la llista "recurrence" d'un esdeveniment
+  // Retorna undefined (sense repetició), null (no representable) o { rule, ex[], add[] }
+  function parseRecurrence(rec) {
+    const lines = rec || [];
+    if (!lines.length) return undefined;
+    const rr = lines.filter((l) => l.startsWith("RRULE:"));
+    if (rr.length > 1) return null;
+    const out = { rule: null, ex: [], add: [] };
+    if (rr.length) { out.rule = parseRule(rr[0]); if (!out.rule) return null; }
+    for (const l of lines) {
+      if (l.startsWith("RRULE:")) continue;
+      const m = /^(EXDATE|RDATE)(?:;([^:]*))?:(.+)$/.exec(l);
+      if (!m || /VALUE=PERIOD/i.test(m[2] || "")) return null;
+      for (const v of m[3].split(",")) {
+        const t = /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?$/.exec(v.trim());
+        if (!t) return null;
+        const key = t[7] ? toDay(new Date(Date.UTC(+t[1], +t[2] - 1, +t[3], +t[4], +t[5], +t[6]))) : `${t[1]}-${t[2]}-${t[3]}`;
+        (m[1] === "EXDATE" ? out.ex : out.add).push(key);
+      }
+    }
+    if (!out.rule && !out.add.length) return null;
+    return out;
+  }
+
+  // Quina de les opcions simples equival a la regla? Si cap, "custom".
+  function topOption(r) {
+    if (r.COUNT || r.UNTIL) return "custom";
+    const iv = +(r.INTERVAL || 1), sd = startDay();
+    if (r.FREQ === "DAILY" && iv === 1) return "daily";
+    if (r.FREQ === "WEEKLY" && (iv === 1 || iv === 2) && (!r.BYDAY || r.BYDAY === wdOf(sd))) return iv === 1 ? "weekly" : "biweekly";
+    if (r.FREQ === "MONTHLY" && iv === 1 && r.BYMONTHDAY === String(sd.getDate())) return "monthly";
+    if (r.FREQ === "YEARLY" && iv === 1) return "yearly";
+    return "custom";
+  }
+
+  // Omple els controls a partir de la llista "recurrence" d'un esdeveniment
   function fillRep(rec) {
-    repKeep = false;
+    repKeep = false; exSet.clear(); addSet.clear(); calBase = null;
     const sel = $("#f-rep");
     sel.disabled = false;
     $("#rep-note").hidden = true;
-    $("#f-int").value = "1";
+    $("#rep-adj").hidden = true;
+    $("#f-cfreq").value = "weekly"; $("#f-int").value = "1";
     WD.forEach((c) => { $("#wd-" + c).checked = false; });
     $("#f-endmode").value = "never"; $("#f-count").value = "10"; $("#f-until").value = "";
-    const line = (rec || []).find((l) => l.startsWith("RRULE:"));
-    if (!line) { sel.value = "none"; return updateRepUI(); }
-    const r = parseRule(line);
-    if (!r) {   // regla avançada: no es pot editar aquí i es conserva tal com és
-      repKeep = true; sel.value = "none"; sel.disabled = true; $("#rep-note").hidden = false;
+    const parsed = parseRecurrence(rec), r = parsed && parsed.rule;
+    const bad = r && r.FREQ === "MONTHLY" && /^\d{1,2}$/.test(r.BYMONTHDAY || "") && +r.BYMONTHDAY !== startDay().getDate();
+    if (parsed === undefined) { sel.value = "none"; lastTop = "none"; return updateRepUI(); }
+    if (parsed === null || bad) {   // repetició avançada: no es pot editar aquí i es conserva tal com és
+      repKeep = true; sel.value = "none"; lastTop = "none"; sel.disabled = true; $("#rep-note").hidden = false;
       return updateRepUI();
     }
-    sel.value = r.FREQ.toLowerCase();
-    $("#f-int").value = r.INTERVAL || "1";
-    if (r.FREQ === "WEEKLY" && r.BYDAY) r.BYDAY.split(",").forEach((c) => { $("#wd-" + c).checked = true; });
-    let mode = "day";
-    if (r.FREQ === "MONTHLY" && r.BYDAY) mode = r.BYDAY.startsWith("-1") ? "last" : "nth";
-    if (r.COUNT) { $("#f-endmode").value = "count"; $("#f-count").value = r.COUNT; }
-    else if (r.UNTIL) {
-      const u = r.UNTIL;
-      $("#f-endmode").value = "until";
-      $("#f-until").value = u.length === 8
-        ? `${u.slice(0, 4)}-${u.slice(4, 6)}-${u.slice(6, 8)}`
-        : toDay(new Date(Date.UTC(+u.slice(0, 4), +u.slice(4, 6) - 1, +u.slice(6, 8), +u.slice(9, 11) || 0, +u.slice(11, 13) || 0, +u.slice(13, 15) || 0)));
+    const top = r && !parsed.ex.length && !parsed.add.length ? topOption(r) : "custom";
+    sel.value = top; lastTop = top;
+    let mode;
+    if (top === "custom") {
+      $("#f-cfreq").value = r ? r.FREQ.toLowerCase() : "days";
+      if (r) {
+        $("#f-int").value = r.INTERVAL || "1";
+        if (r.FREQ === "WEEKLY") (r.BYDAY ? r.BYDAY.split(",") : [wdOf(startDay())]).forEach((c) => { $("#wd-" + c).checked = true; });
+        if (r.FREQ === "MONTHLY") mode = r.BYDAY ? "firstmon" : r.BYMONTHDAY === "1,16" ? "dates" : "sameday";
+        if (r.COUNT) { $("#f-endmode").value = "count"; $("#f-count").value = r.COUNT; }
+        else if (r.UNTIL) {
+          const u = r.UNTIL;
+          $("#f-endmode").value = "until";
+          $("#f-until").value = u.length === 8
+            ? `${u.slice(0, 4)}-${u.slice(4, 6)}-${u.slice(6, 8)}`
+            : toDay(new Date(Date.UTC(+u.slice(0, 4), +u.slice(4, 6) - 1, +u.slice(6, 8), +u.slice(9, 11) || 0, +u.slice(11, 13) || 0, +u.slice(13, 15) || 0)));
+        }
+      }
+      parsed.ex.forEach((k) => exSet.add(k));
+      parsed.add.forEach((k) => addSet.add(k));
     }
     updateRepUI(mode);
   }
 
-  // Construeix la regla RRULE a partir del formulari (null = no es repeteix)
-  function buildRecurrence(allday) {
-    const f = $("#f-rep").value;
-    if (f === "none") return null;
-    const sd = startDay();
-    const n = Math.min(99, Math.max(1, parseInt($("#f-int").value, 10) || 1));
-    const p = ["FREQ=" + f.toUpperCase()];
-    if (n > 1) p.push("INTERVAL=" + n);
-    if (f === "weekly") {
-      const days = WD.filter((c) => $("#wd-" + c).checked);
-      if (!days.length) throw new Error("Marca almenys un dia de la setmana.");
-      p.push("BYDAY=" + days.join(","));
-    } else if (f === "monthly") {
-      const m = $("#f-mmode").value, code = wdOf(sd);
-      if (m === "nth") p.push("BYDAY=" + Math.ceil(sd.getDate() / 7) + code);
-      else if (m === "last") p.push("BYDAY=-1" + code);
-      else p.push("BYMONTHDAY=" + sd.getDate());
-    }
-    const end = $("#f-endmode").value;
-    if (end === "count") {
-      const c = parseInt($("#f-count").value, 10);
-      if (!(c >= 1 && c <= 999)) throw new Error("El nombre de repeticions ha de ser entre 1 i 999.");
-      p.push("COUNT=" + c);
-    } else if (end === "until") {
-      const u = parseDay($("#f-until").value);
-      if (isNaN(u)) throw new Error("Indica el dia en què acaba la repetició.");
-      if (u < sd) throw new Error("La repetició no pot acabar abans del dia d'inici.");
-      if (allday) p.push("UNTIL=" + toDay(u).replace(/-/g, ""));
-      else {   // en esdeveniments amb hora, Google vol l'UNTIL en UTC: es fa servir el final d'aquell dia
-        const z = new Date(u.getFullYear(), u.getMonth(), u.getDate(), 23, 59, 59);
-        p.push("UNTIL=" + z.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, ""));
-      }
-    }
-    return "RRULE:" + p.join(";");
+  // En passar d'una opció simple a "Personalitzat…", els controls parteixen d'aquella opció
+  const SEED = { daily: "daily", weekly: "weekly", biweekly: "weekly", monthly: "monthly", yearly: "yearly" };
+  function seedCustom(prev) {
+    if (!SEED[prev]) return;
+    $("#f-cfreq").value = SEED[prev];
+    $("#f-int").value = prev === "biweekly" ? "2" : "1";
+    WD.forEach((c) => { $("#wd-" + c).checked = false; });
   }
 
-  $("#f-rep").onchange = () => updateRepUI();
+  $("#f-rep").onchange = () => {
+    const top = $("#f-rep").value;
+    if (top === "custom" && lastTop !== "custom") seedCustom(lastTop);
+    lastTop = top;
+    updateRepUI(top === "custom" ? "sameday" : undefined);
+    alignMonthly();
+  };
+  $("#f-cfreq").onchange = () => { updateRepUI(); alignMonthly(); };
+  $("#f-mmode").onchange = () => { alignMonthly(); renderCal3(); };
   $("#f-int").oninput = () => updateRepUI();
   $("#f-endmode").onchange = () => updateRepUI();
   $("#f-start").onchange = () => updateRepUI();
+  $("#f-until").onchange = () => renderCal3();
+  $("#f-count").oninput = () => renderCal3();
+  $("#rep-week").addEventListener("change", () => renderCal3());
+  $("#cal-prev").onclick = () => { calBase = new Date(calBase.getFullYear(), calBase.getMonth() - 1, 1); renderCal3(); };
+  $("#cal-next").onclick = () => { calBase = new Date(calBase.getFullYear(), calBase.getMonth() + 1, 1); renderCal3(); };
+  $("#cal3").onclick = (ev) => { const b = ev.target.closest("[data-d]"); if (b && !b.disabled) toggleDay(b.dataset.d); };
 
   // Un esdeveniment d'una sèrie s'obre per defecte només com a ocurrència; aquest botó carrega la sèrie sencera
   $("#f-series").onclick = async () => {
@@ -761,7 +1034,7 @@
       const a = new Date(s), b = new Date(en);
       if (isNaN(a) || isNaN(b)) throw new Error("Data o hora no vàlides.");
       if (b <= a) throw new Error("El final ha de ser posterior a l'inici.");
-      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const tz = formTz;
       f.start = { dateTime: a.toISOString(), timeZone: tz };
       f.end = { dateTime: b.toISOString(), timeZone: tz };
     }
@@ -778,8 +1051,8 @@
     target.start = f.start;
     target.end = f.end;
     if ("recurrence" in f) {
-      const extra = (target.recurrence || []).filter((l) => !l.startsWith("RRULE:"));   // conserva EXDATE/RDATE
-      if (f.recurrence) target.recurrence = [f.recurrence, ...extra]; else delete target.recurrence;
+      // El formulari defineix tota la repetició (regla + dies concrets); null = treure-la
+      if (f.recurrence && f.recurrence.length) target.recurrence = f.recurrence; else delete target.recurrence;
     }
     return target;
   }
