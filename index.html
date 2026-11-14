@@ -178,7 +178,6 @@
           <label class="wd"><input type="checkbox" id="wd-SU"> Dg</label>
         </div>
         <label id="rep-month-wrap" hidden>Es repeteix <select id="f-mmode"></select></label>
-        <p id="rep-adj" class="muted small" hidden></p>
         <div class="inline">Acaba
           <select id="f-endmode">
             <option value="never">Mai</option>
@@ -205,7 +204,7 @@
 <script>
   // ====== CONFIGURACIÓ: enganxa aquí el teu ID de client de Google Cloud ======
   // (L'ID de client no és secret. Mai no hi posis el "secret de client".)
-  const CLIENT_ID = "419710279198-q9va8acipt65pbiifm7ppulofh5q326e.apps.googleusercontent.com";
+  const CLIENT_ID = "EL-TEU-ID-DE-CLIENT.apps.googleusercontent.com";
   // ============================================================================
 
   // Lectura de calendaris + edició d'esdeveniments (sense tocar la configuració dels calendaris)
@@ -595,12 +594,8 @@
   // ---------- Repetició (regles RRULE de Google Calendar) ----------
   const WD = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"];
   const wdOf = (d) => WD[(d.getDay() + 6) % 7];
-  // Opcions mensuals: "dates" = dies 1 i 16 de cada mes; "firstmon" = primer dilluns de cada mes
-  const monthlyMatches = (d, mode) => mode === "firstmon" ? (d.getDay() === 1 && d.getDate() <= 7) : (d.getDate() === 1 || d.getDate() === 16);
-  function nextMonthly(d, mode) {
-    for (let i = 0; i <= 62; i++) { const c = addDays(d, i); if (monthlyMatches(c, mode)) return c; }
-    return d;
-  }
+  const ORD = ["primer", "segon", "tercer", "quart"];
+  const DOW = ["diumenge", "dilluns", "dimarts", "dimecres", "dijous", "divendres", "dissabte"];
   const UNIT = { daily: ["dia", "dies"], weekly: ["setmana", "setmanes"], monthly: ["mes", "mesos"], yearly: ["any", "anys"] };
 
   function startDay() {
@@ -608,33 +603,16 @@
     return isNaN(d) ? new Date() : d;
   }
 
+  // Opcions mensuals segons la data d'inici: "el dia 12", "el segon dijous", "l'últim dijous"
   function refreshMonthly(want) {
-    const sel = $("#f-mmode");
-    const opts = [["dates", "Els dies 1 i 16 del mes"], ["firstmon", "El primer dilluns de mes"]];
+    const d = startDay(), sel = $("#f-mmode");
+    const dim = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    const opts = [["day", `El dia ${d.getDate()} de cada mes`]];
+    if (d.getDate() <= 28) opts.push(["nth", `El ${ORD[Math.ceil(d.getDate() / 7) - 1]} ${DOW[d.getDay()]} de cada mes`]);
+    if (d.getDate() + 7 > dim) opts.push(["last", `L'últim ${DOW[d.getDay()]} de cada mes`]);
     const prev = typeof want === "string" ? want : sel.value;
     sel.innerHTML = opts.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join("");
-    sel.value = opts.some((o) => o[0] === prev) ? prev : "dates";
-  }
-
-  // Mou les dates d'inici i final (mantenint la durada) un nombre de dies
-  function shiftDates(days) {
-    for (const id of ["#f-start", "#f-end"]) {
-      const v = $(id).value;
-      if (!v) continue;
-      if (v.length === 10) $(id).value = toDay(addDays(parseDay(v), days));
-      else { const d = new Date(v); $(id).value = toLocal(new Date(d.getFullYear(), d.getMonth(), d.getDate() + days, d.getHours(), d.getMinutes())); }
-    }
-  }
-
-  // Si la data d'inici no coincideix amb l'opció mensual triada, es mou a la primera data que sí
-  function alignMonthly() {
-    if ($("#f-rep").value !== "monthly") return;
-    const m = $("#f-mmode").value, sd = startDay();
-    if (monthlyMatches(sd, m)) { $("#rep-adj").hidden = true; return; }
-    const nd = nextMonthly(sd, m);
-    shiftDates(Math.round((Date.UTC(nd.getFullYear(), nd.getMonth(), nd.getDate()) - Date.UTC(sd.getFullYear(), sd.getMonth(), sd.getDate())) / 864e5));
-    $("#rep-adj").textContent = "S'ha mogut la data d'inici al " + nd.toLocaleDateString("ca") + " perquè coincideixi amb la repetició.";
-    $("#rep-adj").hidden = false;
+    sel.value = opts.some((o) => o[0] === prev) ? prev : "day";
   }
 
   function updateRepUI(want) {
@@ -645,7 +623,6 @@
     $("#f-unit").textContent = UNIT[f][n === 1 ? 0 : 1];
     $("#rep-week").hidden = f !== "weekly";
     $("#rep-month-wrap").hidden = f !== "monthly";
-    if (f !== "monthly") $("#rep-adj").hidden = true;
     if (f === "weekly" && !WD.some((c) => $("#wd-" + c).checked)) $("#wd-" + wdOf(startDay())).checked = true;
     if (f === "monthly") refreshMonthly(want);
     const m = $("#f-endmode").value;
@@ -669,9 +646,9 @@
       if (r.BYMONTHDAY) return null;
       if (r.BYDAY && !r.BYDAY.split(",").every((c) => WD.includes(c))) return null;
     } else if (r.FREQ === "MONTHLY") {
-      // Només les dues opcions mensuals d'aquest formulari; qualsevol altra es considera avançada i es conserva
-      const dates = r.BYMONTHDAY === "1,16" && !r.BYDAY, firstMon = r.BYDAY === "1MO" && !r.BYMONTHDAY;
-      if (!dates && !firstMon) return null;
+      if (r.BYMONTHDAY && r.BYDAY) return null;
+      if (r.BYMONTHDAY && !/^\d{1,2}$/.test(r.BYMONTHDAY)) return null;
+      if (r.BYDAY && !/^(-1|[1-4])(MO|TU|WE|TH|FR|SA|SU)$/.test(r.BYDAY)) return null;
     } else if (r.BYDAY || r.BYMONTHDAY) return null;
     return r;
   }
@@ -682,7 +659,6 @@
     const sel = $("#f-rep");
     sel.disabled = false;
     $("#rep-note").hidden = true;
-    $("#rep-adj").hidden = true;
     $("#f-int").value = "1";
     WD.forEach((c) => { $("#wd-" + c).checked = false; });
     $("#f-endmode").value = "never"; $("#f-count").value = "10"; $("#f-until").value = "";
@@ -696,7 +672,8 @@
     sel.value = r.FREQ.toLowerCase();
     $("#f-int").value = r.INTERVAL || "1";
     if (r.FREQ === "WEEKLY" && r.BYDAY) r.BYDAY.split(",").forEach((c) => { $("#wd-" + c).checked = true; });
-    const mode = r.FREQ === "MONTHLY" && r.BYDAY ? "firstmon" : "dates";
+    let mode = "day";
+    if (r.FREQ === "MONTHLY" && r.BYDAY) mode = r.BYDAY.startsWith("-1") ? "last" : "nth";
     if (r.COUNT) { $("#f-endmode").value = "count"; $("#f-count").value = r.COUNT; }
     else if (r.UNTIL) {
       const u = r.UNTIL;
@@ -721,11 +698,10 @@
       if (!days.length) throw new Error("Marca almenys un dia de la setmana.");
       p.push("BYDAY=" + days.join(","));
     } else if (f === "monthly") {
-      const m = $("#f-mmode").value;
-      if (!monthlyMatches(sd, m)) {
-        throw new Error("La data d'inici ha de ser " + (m === "firstmon" ? "el primer dilluns d'un mes" : "el dia 1 o el 16 d'un mes") + " perquè coincideixi amb la repetició.");
-      }
-      p.push(m === "firstmon" ? "BYDAY=1MO" : "BYMONTHDAY=1,16");
+      const m = $("#f-mmode").value, code = wdOf(sd);
+      if (m === "nth") p.push("BYDAY=" + Math.ceil(sd.getDate() / 7) + code);
+      else if (m === "last") p.push("BYDAY=-1" + code);
+      else p.push("BYMONTHDAY=" + sd.getDate());
     }
     const end = $("#f-endmode").value;
     if (end === "count") {
@@ -745,8 +721,7 @@
     return "RRULE:" + p.join(";");
   }
 
-  $("#f-rep").onchange = () => { updateRepUI(); alignMonthly(); };
-  $("#f-mmode").onchange = () => alignMonthly();
+  $("#f-rep").onchange = () => updateRepUI();
   $("#f-int").oninput = () => updateRepUI();
   $("#f-endmode").onchange = () => updateRepUI();
   $("#f-start").onchange = () => updateRepUI();
