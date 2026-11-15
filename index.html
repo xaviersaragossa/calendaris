@@ -168,7 +168,7 @@
     <label class="chk"><input type="checkbox" id="f-allday"> Tot el dia</label>
     <div class="row2">
       <label>Inici <input id="f-start" type="datetime-local" required></label>
-      <label>Final <input id="f-end" type="datetime-local" required></label>
+      <label><span id="lbl-end">Final</span> <input id="f-end" type="datetime-local" required></label>
     </div>
     <div id="rep-box">
       <label>Repetició
@@ -183,6 +183,11 @@
         </select>
       </label>
       <p id="rep-hint" class="muted small" hidden></p>
+      <div id="row-until-simple" hidden>
+        <label>Fins el dia… <input type="date" id="f-until2"></label>
+        <p class="muted small">Opcional: si el deixes buit, la repetició no s'acaba mai.</p>
+      </div>
+      <p id="end-note" class="muted small" hidden>Amb una repetició, cada ocurrència dura només un dia: el final és una hora del mateix dia de l'inici. Per acabar la repetició, fes servir «Fins el dia…».</p>
       <p id="rep-note" class="muted small" hidden>Aquest esdeveniment té una repetició avançada que no es pot editar aquí. Es conservarà tal com està.</p>
       <div id="rep-opts" hidden>
         <div class="inline">Patró
@@ -239,7 +244,7 @@
 <script>
   // ====== CONFIGURACIÓ: enganxa aquí el teu ID de client de Google Cloud ======
   // (L'ID de client no és secret. Mai no hi posis el "secret de client".)
-  const CLIENT_ID = "419710279198-q9va8acipt65pbiifm7ppulofh5q326e.apps.googleusercontent.com";
+  const CLIENT_ID = "EL-TEU-ID-DE-CLIENT.apps.googleusercontent.com";
   // ============================================================================
 
   // Lectura de calendaris + edició d'esdeveniments (sense tocar la configuració dels calendaris)
@@ -611,6 +616,7 @@
       else { s.setTime(now.getTime()); s.setMinutes(0, 0, 0); s.setHours(s.getHours() + 1); }   // avui: propera hora
       f = { allday: false, summary: "", loc: "", desc: "", start: toLocal(s), end: toLocal(new Date(s.getTime() + 36e5)) };
     }
+    endCollapsed = false; $("#f-end").disabled = false; $("#lbl-end").textContent = "Final"; $("#end-note").hidden = true;
     for (const id of ["#f-start", "#f-end"]) $(id).type = f.allday ? "date" : "datetime-local";
     $("#f-allday").checked = f.allday;
     $("#f-start").value = f.start; $("#f-end").value = f.end;
@@ -684,11 +690,12 @@
   // Llegeix el patró del formulari. Les opcions simples són patrons fixos; "Personalitzat" llegeix els controls.
   function readPattern() {
     const top = $("#f-rep").value, sd = startDay();
-    if (top === "daily") return { freq: "daily", interval: 1 };
-    if (top === "weekly") return { freq: "weekly", interval: 1, days: [wdOf(sd)] };
-    if (top === "biweekly") return { freq: "weekly", interval: 2, days: [wdOf(sd)] };
-    if (top === "monthly") return { freq: "monthly", interval: 1, mmode: "sameday" };
-    if (top === "yearly") return { freq: "yearly", interval: 1 };
+    const un = $("#f-until2").value, fi = un ? { end: "until", until: parseDay(un) } : {};   // "Fins el dia…" (opcional)
+    if (top === "daily") return { freq: "daily", interval: 1, ...fi };
+    if (top === "weekly") return { freq: "weekly", interval: 1, days: [wdOf(sd)], ...fi };
+    if (top === "biweekly") return { freq: "weekly", interval: 2, days: [wdOf(sd)], ...fi };
+    if (top === "monthly") return { freq: "monthly", interval: 1, mmode: "sameday", ...fi };
+    if (top === "yearly") return { freq: "yearly", interval: 1, ...fi };
     const freq = $("#f-cfreq").value;
     const p = { freq, interval: Math.min(99, Math.max(1, parseInt($("#f-int").value, 10) || 1)), end: $("#f-endmode").value };
     if (freq === "weekly") p.days = WD.filter((c) => $("#wd-" + c).checked);
@@ -851,8 +858,41 @@
     })[top] || "";
   }
 
+  // Amb repetició, el "Final" de l'esdeveniment deixa de ser una data: és només una hora (o queda desactivat si és de tot el dia).
+  // La data final de la repetició es fixa amb "Fins el dia…" (opcions simples) o "Acaba" (personalitzat).
+  let endCollapsed = false, endHm = "", endWasAllday = false;
+  function collapseEnd() {
+    const el = $("#f-end"), sd = $("#f-start").value.slice(0, 10), v = el.value, allday = $("#f-allday").checked;
+    const multi = v.length >= 10 && v.slice(0, 10) !== sd;
+    if (allday) { el.value = sd; el.disabled = true; $("#lbl-end").textContent = "Final (el mateix dia)"; }
+    else {
+      endHm = v.length >= 16 ? v.slice(11, 16) : "";
+      el.type = "time"; el.value = endHm;
+      $("#lbl-end").textContent = "Hora de final";
+    }
+    $("#end-note").hidden = !multi;
+    endCollapsed = true; endWasAllday = allday;
+  }
+  function expandEnd() {
+    // Es restaura segons l'estat en què es va reduir (la casella "Tot el dia" pot haver canviat just abans)
+    const el = $("#f-end"), sd = $("#f-start").value.slice(0, 10), allday = endWasAllday;
+    if (allday) { el.disabled = false; el.value = sd; }
+    else { const hm = el.value || endHm; el.type = "datetime-local"; el.value = hm ? sd + "T" + hm : ""; }
+    $("#lbl-end").textContent = "Final";
+    $("#end-note").hidden = true;
+    endCollapsed = false;
+  }
+  function syncEndField() {
+    const rep = repApplies && $("#f-rep").value !== "none";
+    if (rep && !endCollapsed) collapseEnd();
+    else if (!rep && endCollapsed) expandEnd();
+    else if (rep && $("#f-allday").checked) $("#f-end").value = $("#f-start").value.slice(0, 10);   // segueix la data d'inici
+  }
+
   function updateRepUI(want) {
     const top = $("#f-rep").value, custom = top === "custom", sd = startDay();
+    syncEndField();
+    $("#row-until-simple").hidden = !["daily", "weekly", "biweekly", "monthly", "yearly"].includes(top);
     dlg.classList.toggle("wide", custom);
     $("#rep-opts").hidden = !custom;
     const hint = hintFor(top, sd);
@@ -921,7 +961,7 @@
 
   // Quina de les opcions simples equival a la regla? Si cap, "custom".
   function topOption(r) {
-    if (r.COUNT || r.UNTIL) return "custom";
+    if (r.COUNT) return "custom";
     const iv = +(r.INTERVAL || 1), sd = startDay();
     if (r.FREQ === "DAILY" && iv === 1) return "daily";
     if (r.FREQ === "WEEKLY" && (iv === 1 || iv === 2) && (!r.BYDAY || r.BYDAY === wdOf(sd))) return iv === 1 ? "weekly" : "biweekly";
@@ -931,8 +971,16 @@
   }
 
   // Omple els controls a partir de la llista "recurrence" d'un esdeveniment
+  // "20261231" o "20261231T225959Z" -> "2026-12-31" (dia local)
+  function untilToDay(u) {
+    return u.length === 8
+      ? `${u.slice(0, 4)}-${u.slice(4, 6)}-${u.slice(6, 8)}`
+      : toDay(new Date(Date.UTC(+u.slice(0, 4), +u.slice(4, 6) - 1, +u.slice(6, 8), +u.slice(9, 11) || 0, +u.slice(11, 13) || 0, +u.slice(13, 15) || 0)));
+  }
+
   function fillRep(rec) {
     repKeep = false; exSet.clear(); addSet.clear(); calBase = null;
+    $("#f-until2").value = "";
     const sel = $("#f-rep");
     sel.disabled = false;
     $("#rep-note").hidden = true;
@@ -949,6 +997,7 @@
     }
     const top = r && !parsed.ex.length && !parsed.add.length ? topOption(r) : "custom";
     sel.value = top; lastTop = top;
+    if (top !== "custom" && r.UNTIL) $("#f-until2").value = untilToDay(r.UNTIL);
     let mode;
     if (top === "custom") {
       $("#f-cfreq").value = r ? r.FREQ.toLowerCase() : "days";
@@ -958,11 +1007,8 @@
         if (r.FREQ === "MONTHLY") mode = r.BYDAY ? "firstmon" : r.BYMONTHDAY === "1,16" ? "dates" : "sameday";
         if (r.COUNT) { $("#f-endmode").value = "count"; $("#f-count").value = r.COUNT; }
         else if (r.UNTIL) {
-          const u = r.UNTIL;
           $("#f-endmode").value = "until";
-          $("#f-until").value = u.length === 8
-            ? `${u.slice(0, 4)}-${u.slice(4, 6)}-${u.slice(6, 8)}`
-            : toDay(new Date(Date.UTC(+u.slice(0, 4), +u.slice(4, 6) - 1, +u.slice(6, 8), +u.slice(9, 11) || 0, +u.slice(11, 13) || 0, +u.slice(13, 15) || 0)));
+          $("#f-until").value = untilToDay(r.UNTIL);
         }
       }
       parsed.ex.forEach((k) => exSet.add(k));
@@ -978,6 +1024,8 @@
     $("#f-cfreq").value = SEED[prev];
     $("#f-int").value = prev === "biweekly" ? "2" : "1";
     WD.forEach((c) => { $("#wd-" + c).checked = false; });
+    const un = $("#f-until2").value;
+    if (un) { $("#f-endmode").value = "until"; $("#f-until").value = un; }   // es conserva la data final
   }
 
   $("#f-rep").onchange = () => {
@@ -1018,7 +1066,9 @@
   function buildFields() {
     const summary = $("#f-summary").value.trim();
     if (!summary) throw new Error("El títol és obligatori.");
-    const allday = $("#f-allday").checked, s = $("#f-start").value, en = $("#f-end").value;
+    const allday = $("#f-allday").checked, s = $("#f-start").value;
+    let en = $("#f-end").value;
+    if (endCollapsed) en = allday ? s.slice(0, 10) : (en ? s.slice(0, 10) + "T" + en : "");   // amb repetició: mateix dia que l'inici
     if (!s || !en) throw new Error("Cal indicar l'inici i el final.");
     const f = { summary, location: $("#f-loc").value.trim() };
     // La descripció de Google pot ser HTML: només s'envia si l'usuari l'ha canviat, per no perdre el format
@@ -1072,12 +1122,14 @@
   }
 
   $("#f-allday").onchange = () => {
+    if (endCollapsed) expandEnd();   // es restaura el "Final" abans de canviar de tipus
     const on = $("#f-allday").checked;
     [["#f-start", "09:00"], ["#f-end", "10:00"]].forEach(([id, hm]) => {
       const el = $(id), v = el.value;
       el.type = on ? "date" : "datetime-local";
       el.value = on ? v.slice(0, 10) : (v.length === 10 ? v + "T" + hm : v);
     });
+    syncEndField();
   };
 
   $("#f").onsubmit = async (ev) => {
