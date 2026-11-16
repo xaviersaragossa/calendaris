@@ -142,9 +142,9 @@
           <button id="v-list">Llista</button>
         </div>
         <span id="nav" class="tools">
-          <button id="nav-prev" class="sec" aria-label="Setmana anterior">◀</button>
+          <button id="nav-prev" class="sec" aria-label="Mes anterior" title="Mes anterior">◀</button>
           <button id="nav-today" class="sec">Avui</button>
-          <button id="nav-next" class="sec" aria-label="Setmana següent">▶</button>
+          <button id="nav-next" class="sec" aria-label="Mes següent" title="Mes següent">▶</button>
         </span>
         <select id="days" hidden aria-label="Interval de dies">
           <option value="7">7 dies</option>
@@ -244,7 +244,7 @@
 <script>
   // ====== CONFIGURACIÓ: enganxa aquí el teu ID de client de Google Cloud ======
   // (L'ID de client no és secret. Mai no hi posis el "secret de client".)
-  const CLIENT_ID = "419710279198-q9va8acipt65pbiifm7ppulofh5q326e.apps.googleusercontent.com";
+  const CLIENT_ID = "EL-TEU-ID-DE-CLIENT.apps.googleusercontent.com";
   // ============================================================================
 
   // Lectura de calendaris + edició d'esdeveniments (sense tocar la configuració dels calendaris)
@@ -256,7 +256,7 @@
   const $ = (s) => document.querySelector(s);
 
   let tokenClient = null, token = null, calendars = [], events = [];
-  let view = "grid", weekOffset = 0, gridStart = null;
+  let view = "grid", weekOffset = 0, monthOffset = 0, gridStart = null;
   const hidden = new Set(), expanded = new Set();
   const pop = $("#pop");
   let popTimer = null, pinned = false, popEl = null;
@@ -309,7 +309,7 @@
 
   function signOut() {
     if (token) google.accounts.oauth2.revoke(token, () => {});
-    token = null; calendars = []; events = []; hidden.clear(); expanded.clear(); weekOffset = 0;
+    token = null; calendars = []; events = []; hidden.clear(); expanded.clear(); weekOffset = 0; monthOffset = 0;
     showMsg("");
     setSignedIn(false);
   }
@@ -345,7 +345,7 @@
 
       let min, max;
       if (view !== "list") {
-        gridStart = weekStart(weekOffset);
+        gridStart = view === "week" ? weekStart(weekOffset) : (monthOffset === 0 ? weekStart(0) : monthGridStart(monthOffset));
         min = gridStart; max = addDays(gridStart, view === "week" ? 7 : 35);
       } else {
         min = new Date(); max = new Date(Date.now() + (+$("#days").value) * 864e5);
@@ -373,6 +373,8 @@
   const midnight = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
   const parseDay = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
   const weekStart = (offset) => { const t = midnight(new Date()); return addDays(t, -((t.getDay() + 6) % 7) + 7 * offset); };
+  // Vista de 5 setmanes, mes a mes: comença el dilluns de la setmana que conté l'1 del mes (avui + n mesos)
+  const monthGridStart = (n) => { const t = new Date(); const f = new Date(t.getFullYear(), t.getMonth() + n, 1); return addDays(f, -((f.getDay() + 6) % 7)); };
 
   function textOn(hex) {
     const n = parseInt(hex.slice(1), 16), r = n >> 16, gr = (n >> 8) & 255, b = n & 255;
@@ -539,8 +541,14 @@
   $("#btn-out").onclick = signOut;
   $("#days").onchange = load;
 
+  function updateNav() {
+    const unit = view === "week" ? "Setmana" : "Mes";
+    $("#nav-prev").setAttribute("aria-label", unit + " anterior"); $("#nav-prev").title = unit + " anterior";
+    $("#nav-next").setAttribute("aria-label", unit + " següent"); $("#nav-next").title = unit + " següent";
+  }
   function setView(v) {
     view = v;
+    updateNav();
     $("#v-week").classList.toggle("on", v === "week");
     $("#v-grid").classList.toggle("on", v === "grid");
     $("#v-list").classList.toggle("on", v === "list");
@@ -551,9 +559,10 @@
   $("#v-week").onclick = () => setView("week");
   $("#v-grid").onclick = () => setView("grid");
   $("#v-list").onclick = () => setView("list");
-  $("#nav-prev").onclick = () => { weekOffset--; load(); };
-  $("#nav-next").onclick = () => { weekOffset++; load(); };
-  $("#nav-today").onclick = () => { weekOffset = 0; load(); };
+  // Vista d'1 setmana: avança/retrocedeix setmana a setmana. Vista de 5 setmanes: mes a mes.
+  $("#nav-prev").onclick = () => { if (view === "week") weekOffset--; else monthOffset--; load(); };
+  $("#nav-next").onclick = () => { if (view === "week") weekOffset++; else monthOffset++; load(); };
+  $("#nav-today").onclick = () => { weekOffset = 0; monthOffset = 0; load(); };
   const evEl = (t) => (t && t.closest ? t.closest("[data-ev]") : null);
 
   $("#events").onclick = (ev) => {
