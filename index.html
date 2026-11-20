@@ -23,7 +23,12 @@
   select { background:var(--soft); color:var(--accent); padding:.4rem .6rem; }
   [hidden] { display:none !important; }
   .card { background:var(--card); border-radius:12px; padding:1.25rem; box-shadow:0 2px 12px rgba(0,0,0,.08); }
-  .center { max-width:420px; margin:3rem auto; text-align:center; }
+  .center { max-width:600px; margin:3rem auto; text-align:center; }
+  .about { margin-top:1.25rem; padding-top:.5rem; text-align:left; border-top:1px solid var(--line); }
+  .about h3 { margin:1rem 0 .25rem; font-size:.95rem; }
+  .about ul { list-style:disc; margin:0; padding-left:1.25rem; font-size:.9rem; }
+  .about li { margin:.3rem 0; }
+  .foot { padding:1.5rem 1rem; text-align:center; color:var(--muted); font-size:.85rem; }
   #msg { margin:1rem 1.5rem 0; }
   #msg div { padding:.75rem 1rem; border-radius:8px; background:var(--soft); }
   #msg div.error { background:var(--errbg); color:var(--err); }
@@ -121,9 +126,24 @@
 <div id="msg" role="status"></div>
 
 <section id="login" class="card center">
-  <p>Entra amb el teu compte de Google per veure els propers esdeveniments dels teus calendaris.</p>
+  <h2>Calendaris Pere Relats</h2>
+  <p>Aplicació web per consultar i gestionar els teus calendaris de Google Calendar.</p>
   <button id="btn-in">Entra amb Google</button>
-  <p class="muted small">Només lectura. Les dades es carreguen directament al teu navegador; aquesta pàgina no té servidor ni desa res.</p>
+  <p class="muted small">En entrar, Google et demanarà permís perquè l'aplicació vegi la llista dels teus calendaris i vegi i editi els seus esdeveniments. Les dades es carreguen directament al teu navegador: aquesta pàgina no té servidor, no desa res i no ho comparteix amb ningú. <a href="privacy.html">Política de privadesa</a></p>
+  <div class="about">
+    <h3>Què pots fer-hi</h3>
+    <ul>
+      <li>Veure els esdeveniments dels calendaris que tens activats, en vista d'una setmana, de 5 setmanes o en llista, amb el color de cada calendari.</li>
+      <li>Consultar el detall de cada esdeveniment: hora, lloc, descripció i enllaços.</li>
+      <li>Crear, editar i esborrar esdeveniments, incloses les repeticions (diàries, setmanals, mensuals, anuals i personalitzades), als calendaris on tens permís d'edició.</li>
+    </ul>
+    <h3>Permisos que demana</h3>
+    <ul>
+      <li><strong>Veure la llista de calendaris</strong> (<code>calendar.calendarlist.readonly</code>): per mostrar els teus calendaris i saber quins tens activats i quins pots editar.</li>
+      <li><strong>Veure i editar esdeveniments</strong> (<code>calendar.events</code>): per mostrar els esdeveniments i permetre crear-los, editar-los i esborrar-los.</li>
+    </ul>
+    <p class="muted small">Calendaris Pere Relats's use and transfer to any other app of information received from Google APIs will adhere to <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
+  </div>
 </section>
 
 <main id="app" hidden>
@@ -156,6 +176,8 @@
     <div id="events"></div>
   </section>
 </main>
+
+<footer class="foot">Calendaris Pere Relats · <a href="privacy.html">Política de privadesa / Privacy policy</a></footer>
 
 <div id="pop" hidden role="dialog" aria-label="Detall de l'esdeveniment"></div>
 
@@ -229,6 +251,24 @@
         <p class="muted small">El dia d'inici sempre en forma part. Els dies amb vora s'han afegit a mà.</p>
       </div>
     </div>
+    <div id="rem-box">
+      <label>Recordatori
+        <select id="f-rem">
+          <option value="default">Segons el calendari</option>
+          <option value="none">Cap recordatori</option>
+          <option value="1d">1 dia abans</option>
+          <option value="1w">1 setmana abans</option>
+          <option value="4w">4 setmanes abans</option>
+          <option value="custom">Personalitzat…</option>
+          <option value="keep" id="o-rem-keep" hidden>Recordatoris actuals (es conserven)</option>
+        </select>
+      </label>
+      <div id="rem-custom" hidden>
+        <label>Dia i hora del recordatori <input type="datetime-local" id="f-rem-at"></label>
+      </div>
+      <p id="rem-hint" class="muted small" hidden></p>
+      <p class="muted small">És una notificació de Google Calendar. Google només admet recordatoris fins a 4 setmanes abans de l'esdeveniment.</p>
+    </div>
     <label>Lloc <input type="text" id="f-loc"></label>
     <label>Descripció <textarea id="f-desc" rows="4"></textarea></label>
     <p id="f-note" class="muted small" hidden><span id="f-note-txt"></span> <button type="button" id="f-series" class="sec" hidden>Edita tota la sèrie</button></p>
@@ -244,13 +284,13 @@
 <script>
   // ====== CONFIGURACIÓ: enganxa aquí el teu ID de client de Google Cloud ======
   // (L'ID de client no és secret. Mai no hi posis el "secret de client".)
-  const CLIENT_ID = "419710279198-q9va8acipt65pbiifm7ppulofh5q326e.apps.googleusercontent.com";
+  const CLIENT_ID = "EL-TEU-ID-DE-CLIENT.apps.googleusercontent.com";
   // ============================================================================
 
   // Lectura de calendaris + edició d'esdeveniments (sense tocar la configuració dels calendaris)
   const SCOPES = [
-    "https://www.googleapis.com/auth/calendar.readonly",
-    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/calendar.calendarlist.readonly",   // veure la llista de calendaris
+    "https://www.googleapis.com/auth/calendar.events",                  // veure, crear, editar i esborrar esdeveniments
   ];
   const API = "https://www.googleapis.com/calendar/v3";
   const $ = (s) => document.querySelector(s);
@@ -297,11 +337,10 @@
 
   function onToken(resp) {
     if (resp.error) return showMsg("Google ha retornat un error: " + resp.error, "error");
-    if (!google.accounts.oauth2.hasGrantedAllScopes(resp, SCOPES[0])) {
-      return showMsg("Cal acceptar el permís de lectura dels calendaris per poder continuar.", "error");
+    if (!google.accounts.oauth2.hasGrantedAllScopes(resp, ...SCOPES)) {
+      return showMsg("Cal acceptar els dos permisos (veure la llista de calendaris i veure i editar esdeveniments) per poder continuar.", "error");
     }
-    // Si l'usuari no concedeix el permís d'edició, pot continuar però només en mode lectura
-    editAllowed = google.accounts.oauth2.hasGrantedAllScopes(resp, SCOPES[1]);
+    editAllowed = true;   // l'edició a cada calendari depèn després del permís que l'usuari hi tingui a Google Calendar
     token = resp.access_token;
     setSignedIn(true);
     load();
@@ -633,6 +672,7 @@
     $("#f-del").hidden = !e;
     $("#rep-box").hidden = !repApplies;
     fillRep(e && e.recurrence);
+    fillRem(e);
     const inst = !!(e && e.recurringEventId), serie = !!(e && e.recurrence && e.recurrence.length);
     $("#f-note").hidden = !(inst || serie);
     $("#f-note-txt").textContent = inst
@@ -901,6 +941,7 @@
   function updateRepUI(want) {
     const top = $("#f-rep").value, custom = top === "custom", sd = startDay();
     syncEndField();
+    updateRemUI();
     $("#row-until-simple").hidden = !["daily", "weekly", "biweekly", "monthly", "yearly"].includes(top);
     dlg.classList.toggle("wide", custom);
     $("#rep-opts").hidden = !custom;
@@ -1048,7 +1089,7 @@
   $("#f-mmode").onchange = () => { alignMonthly(); renderCal3(); };
   $("#f-int").oninput = () => updateRepUI();
   $("#f-endmode").onchange = () => updateRepUI();
-  $("#f-start").onchange = () => updateRepUI();
+  $("#f-start").onchange = () => { updateRepUI(); updateRemUI(); };
   $("#f-until").onchange = () => renderCal3();
   $("#f-count").oninput = () => renderCal3();
   $("#rep-week").addEventListener("change", () => renderCal3());
@@ -1070,6 +1111,85 @@
       $("#f-series").disabled = false;
     }
   };
+
+  // ---------- Recordatori (reminders de Google Calendar) ----------
+  // Google només admet recordatoris relatius a l'inici, entre 0 i 40320 minuts (4 setmanes).
+  const REM_MAX = 40320;
+  const REM_PRESET = { "1d": 1440, "1w": 10080, "4w": 40320 };
+  const fmtWhen = (d) => d.toLocaleString("ca", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+
+  function startInstant() {
+    const v = $("#f-start").value;
+    if (!v) return null;
+    const d = $("#f-allday").checked ? parseDay(v.slice(0, 10)) : new Date(v);
+    return isNaN(d) ? null : d;
+  }
+  // En esdeveniments de dia sencer, els avisos predefinits surten a les 9:00 del dia corresponent (si no, sortirien a mitjanit)
+  const remMinutes = (key, allday) => REM_PRESET[key] - (allday ? 540 : 0);
+
+  // Moment en què sonarà l'avís segons la selecció actual (o null)
+  function remInstant() {
+    const sel = $("#f-rem").value, st = startInstant();
+    if (!st) return null;
+    if (REM_PRESET[sel]) return new Date(st.getTime() - remMinutes(sel, $("#f-allday").checked) * 60000);
+    if (sel === "custom") { const v = $("#f-rem-at").value, d = v ? new Date(v) : null; return d && !isNaN(d) ? d : null; }
+    return null;
+  }
+
+  function updateRemUI() {
+    const sel = $("#f-rem").value, st = startInstant();
+    $("#rem-custom").hidden = sel !== "custom";
+    if (st) {
+      if (sel === "custom" && !$("#f-rem-at").value) $("#f-rem-at").value = toLocal(new Date(st.getTime() - remMinutes("1d", $("#f-allday").checked) * 60000));
+      $("#f-rem-at").min = toLocal(new Date(st.getTime() - REM_MAX * 60000));   // límit de Google: 4 setmanes abans
+      $("#f-rem-at").max = toLocal(st);
+    }
+    const at = remInstant(), rec = repApplies && $("#f-rep").value !== "none";
+    $("#rem-hint").textContent = at ? "S'avisarà el " + fmtWhen(at) + (rec ? " (i amb el mateix avançament abans de cada repetició)" : "") + "." : "";
+    $("#rem-hint").hidden = !at;
+  }
+
+  // Llegeix el recordatori del formulari: undefined = no tocar els actuals
+  function buildReminders() {
+    const sel = $("#f-rem").value;
+    if (sel === "keep") return undefined;
+    if (sel === "default") return { useDefault: true };
+    if (sel === "none") return { useDefault: false, overrides: [] };
+    const st = startInstant(), allday = $("#f-allday").checked;
+    let minutes;
+    if (REM_PRESET[sel]) minutes = remMinutes(sel, allday);
+    else {
+      const at = remInstant();
+      if (!at) throw new Error("Indica el dia i l'hora del recordatori.");
+      minutes = Math.round((st - at) / 60000);
+      if (minutes < 0 || minutes > REM_MAX) {
+        throw new Error("El recordatori ha de ser entre l'inici de l'esdeveniment i 4 setmanes abans (límit de Google). Tria un moment entre el "
+          + fmtWhen(new Date(st.getTime() - REM_MAX * 60000)) + " i el " + fmtWhen(st) + ".");
+      }
+    }
+    return { useDefault: false, overrides: [{ method: "popup", minutes }] };
+  }
+
+  // Omple el selector a partir dels recordatoris d'un esdeveniment
+  function fillRem(e) {
+    $("#o-rem-keep").hidden = true;
+    $("#f-rem-at").value = "";
+    const sel = $("#f-rem"), r = e && e.reminders;
+    if (!e || !r || r.useDefault !== false) { sel.value = "default"; return updateRemUI(); }
+    const ov = r.overrides || [];
+    if (!ov.length) { sel.value = "none"; return updateRemUI(); }
+    if (ov.length === 1 && ov[0].method === "popup") {
+      const m = ov[0].minutes, key = Object.keys(REM_PRESET).find((k) => remMinutes(k, !e.start.dateTime) === m);
+      if (key) sel.value = key;
+      else { sel.value = "custom"; const st = startInstant(); if (st) $("#f-rem-at").value = toLocal(new Date(st.getTime() - m * 60000)); }
+    } else {   // diversos recordatoris o per correu: no es poden editar aquí i es conserven
+      $("#o-rem-keep").hidden = false; sel.value = "keep";
+    }
+    updateRemUI();
+  }
+
+  $("#f-rem").onchange = () => updateRemUI();
+  $("#f-rem-at").onchange = () => updateRemUI();
 
   // Llegeix i valida el formulari
   function buildFields() {
@@ -1099,6 +1219,8 @@
     }
     // undefined = no tocar la repetició actual; null = treure-la; text = nova regla
     if (repApplies && !repKeep) f.recurrence = buildRecurrence(allday);
+    const rm = buildReminders();
+    if (rm !== undefined) f.reminders = rm;
     return f;
   }
 
@@ -1109,6 +1231,7 @@
     }
     target.start = f.start;
     target.end = f.end;
+    if ("reminders" in f) target.reminders = f.reminders;
     if ("recurrence" in f) {
       // El formulari defineix tota la repetició (regla + dies concrets); null = treure-la
       if (f.recurrence && f.recurrence.length) target.recurrence = f.recurrence; else delete target.recurrence;
@@ -1139,6 +1262,7 @@
       el.value = on ? v.slice(0, 10) : (v.length === 10 ? v + "T" + hm : v);
     });
     syncEndField();
+    updateRemUI();
   };
 
   $("#f").onsubmit = async (ev) => {
